@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dataharmonizer-template-builder"
+version = "0.1.0"
+description = "Browser-based editor for DataHarmonizer LinkML schemas using Schemasheets tables."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "MIMICC contributors" }
+]
+dependencies = []
+
+[project.optional-dependencies]
+app = [
+  "fastapi>=0.115",
+  "linkml>=1.7",
+  "linkml-runtime>=1.8",
+  "python-multipart>=0.0.9",
+  "pyyaml>=6",
+  "schemasheets>=0.4",
+  "uvicorn[standard]>=0.30",
+]
+dev = [
+  "httpx",
+  "playwright",
+  "pre-commit",
+  "pytest",
+  "pytest-playwright",
+]
+
+[project.scripts]
+dh-template-builder = "dataharmonizer_template_builder.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
