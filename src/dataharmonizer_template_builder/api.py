@@ -1,0 +1,186 @@
+"""FastAPI application for the DataHarmonizer template builder."""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from dataharmonizer_template_builder import dh_compile
+from dataharmonizer_template_builder.conversion import ConversionService
+from dataharmonizer_template_builder.models import Diagnostic, TableRows
+from dataharmonizer_template_builder.sessions import store
+from dataharmonizer_template_builder import validation
+
+
+app = FastAPI(title="DataHarmonizer Template Builder")
+converter = ConversionService()
+FRONTEND_DIST = Path("frontend/dist")
+FRONTEND_ASSETS = FRONTEND_DIST / "assets"
+VITE_HASHED_ASSET_PREFIXES = ("index-", "jquery-", "_dh-preview-library-")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_static_cache_headers(request, call_next):
+    """Avoid stale HTML keeping references to old Vite asset hashes."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.endswith(".html"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class ImportRequest(BaseModel):
+    """JSON request for schema import."""
+
+    yaml: str
+    name: str | None = None
+
+
+class TablesRequest(BaseModel):
+    """Request carrying editable tables."""
+
+    tables: TableRows
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    """Return backend health and optional tool status."""
+    return {"ok": True, "docker_available": dh_compile.docker_available()}
+
+
+@app.post("/api/schemas/import")
+def import_schema(request: ImportRequest) -> dict[str, Any]:
+    """Import LinkML YAML text into editable tables."""
+    try:
+        schema, editable_tables, diagnostics = converter.import_yaml(request.yaml)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    schema_name = request.name or schema.get("name") or "schema"
+    session = store.create(
+        source_yaml=request.yaml,
+        schema_name=schema_name,
+        tables=editable_tables,
+    )
+    session.diagnostics = diagnostics
+    return {
+        "session_id": session.session_id,
+        "schema_name": session.schema_name,
+        "tables": editable_tables,
+        "diagnostics": [diagnostic.to_dict() for diagnostic in diagnostics],
+    }
+
+
+if importlib.util.find_spec("multipart") is not None:
+
+    @app.post("/api/schemas/import-file")
+    async def import_schema_file(file: UploadFile = File(...)) -> dict[str, Any]:
+        """Import an uploaded LinkML YAML file into editable tables."""
+        content = await file.read()
+        return import_schema(ImportRequest(yaml=content.decode("utf-8"), name=file.filename))
+
+
+@app.get("/api/sessions/{session_id}")
+def get_session(session_id: str) -> dict[str, Any]:
+    """Return a schema editing session."""
+    try:
+        return store.get(session_id).to_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown session.") from exc
+
+
+@app.post("/api/sessions/{session_id}/tables")
+def update_tables(session_id: str, request: TablesRequest) -> dict[str, Any]:
+    """Update a session's editable tables."""
+    try:
+        session = store.update_tables(session_id, request.tables)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown session.") from exc
+    return session.to_dict()
+
+
+@app.post("/api/sessions/{session_id}/generate")
+def generate(session_id: str, request: TablesRequest | None = None) -> dict[str, Any]:
+    """Generate LinkML YAML and preview schema JSON from editable tables."""
+    session = _session_or_404(session_id)
+    editable_tables = request.tables if request else session.tables
+    yaml_text, schema, diagnostics = converter.generate_yaml(editable_tables)
+    diagnostics.extend(validation.validate_schema(schema))
+    schema_json, compile_diagnostics = dh_compile.compile_schema_json(yaml_text)
+    diagnostics.extend(compile_diagnostics)
+    session.tables = editable_tables
+    session.latest_yaml = yaml_text
+    session.latest_schema = schema
+    session.diagnostics = diagnostics
+    return {
+        "yaml": yaml_text,
+        "schema": schema,
+        "schema_json": schema_json or schema,
+        "diagnostics": [diagnostic.to_dict() for diagnostic in diagnostics],
+    }
+
+
+@app.post("/api/sessions/{session_id}/export")
+def export_schema(session_id: str, request: TablesRequest | None = None) -> dict[str, Any]:
+    """Return generated LinkML YAML without writing host project files."""
+    generated = generate(session_id, request)
+    return {"yaml": generated["yaml"], "diagnostics": generated["diagnostics"]}
+
+
+@app.get("/assets/{asset_name}")
+def frontend_asset(asset_name: str) -> FileResponse:
+    """Serve current Vite chunks for stale hashed asset URLs after rebuilds."""
+    asset_path = _resolve_frontend_asset(asset_name)
+    if asset_path is None:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    response = FileResponse(asset_path)
+    if asset_path.name != asset_name:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _session_or_404(session_id: str):
+    try:
+        return store.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown session.") from exc
+
+
+def _resolve_frontend_asset(asset_name: str) -> Path | None:
+    exact_path = FRONTEND_ASSETS / asset_name
+    if exact_path.is_file():
+        return exact_path
+
+    suffix = Path(asset_name).suffix
+    if suffix not in {".css", ".js"}:
+        return None
+
+    for prefix in VITE_HASHED_ASSET_PREFIXES:
+        if not asset_name.startswith(prefix):
+            continue
+        matches = sorted(
+            FRONTEND_ASSETS.glob(f"{prefix}*{suffix}"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return matches[0] if matches else None
+    return None
+
+
+try:
+    app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+except RuntimeError:
+    pass

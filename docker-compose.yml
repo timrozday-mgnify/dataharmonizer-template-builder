@@ -1,0 +1,12 @@
+services:
+  app:
+    build:
+      context: .
+      additional_contexts:
+        dataharmonizer-src: ../DataHarmonizer
+    environment:
+      DATAHARMONIZER_DIR: /DataHarmonizer
+    ports:
+      - "8765:8765"
+    volumes:
+      - ../DataHarmonizer:/DataHarmonizer:ro
