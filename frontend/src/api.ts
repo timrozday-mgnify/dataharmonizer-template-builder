@@ -1,4 +1,4 @@
-import type { GenerateResponse, ImportResponse, Tables } from './types';
+import type { FrontendConfig, GenerateResponse, ImportResponse, Tables } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
@@ -21,6 +21,23 @@ export function importSchema(yaml: string): Promise<ImportResponse> {
   });
 }
 
+export function createIntegrationSession({
+  yaml,
+  name,
+  sourceId,
+  metadata
+}: {
+  yaml: string;
+  name?: string;
+  sourceId?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<ImportResponse> {
+  return request<ImportResponse>('/api/integrations/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ yaml, name, source_id: sourceId, metadata })
+  });
+}
+
 export function updateTables(sessionId: string, tables: Tables): Promise<ImportResponse> {
   return request<ImportResponse>(`/api/sessions/${sessionId}/tables`, {
     method: 'POST',
@@ -33,4 +50,12 @@ export function generateSchema(sessionId: string, tables: Tables): Promise<Gener
     method: 'POST',
     body: JSON.stringify({ tables })
   });
+}
+
+export function getIntegrationYaml(sessionId: string): Promise<GenerateResponse> {
+  return request<GenerateResponse>(`/api/integrations/sessions/${sessionId}/yaml`);
+}
+
+export function getFrontendConfig(): Promise<FrontendConfig> {
+  return request<FrontendConfig>('/api/frontend-config');
 }

@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 
+const HOST_SCHEMA = `id: https://example.org/host-demo
+name: host_demo
+imports:
+- linkml:types
+prefixes:
+  linkml: https://w3id.org/linkml/
+default_range: string
+classes:
+  dh_interface:
+    description: A DataHarmonizer interface
+  HostDemo:
+    is_a: dh_interface
+    slots:
+    - host_id
+slots:
+  host_id:
+    title: Host ID
+    range: string
+    required: true
+`;
+
 async function importDemoSchema(page: Parameters<Parameters<typeof test>[1]>[0]['page']) {
   await page.getByRole('button', { name: 'Import YAML' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Import YAML' })).toBeVisible();
@@ -121,4 +142,69 @@ test('runs native DataHarmonizer validation in the preview grid', async ({ page 
     .nth(1);
   await expect(invalidCell).toHaveClass(/empty-invalid-cell|invalid-cell/);
   await expect(invalidCell).toHaveCSS('background-color', 'rgb(255, 145, 164)');
+});
+
+test('uses backend frontend config to hide host-managed controls', async ({ page }) => {
+  await page.route('**/api/frontend-config', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        showImportButton: false,
+        showExportButton: false,
+        showGenerateButton: true,
+        showPreviewButton: true,
+        showDiagnostics: true,
+        allowExampleSchema: false,
+        hostName: 'MIMICC',
+        hostMode: 'embedded'
+      })
+    });
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByText('MIMICC')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Import YAML' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Export YAML' })).toHaveCount(0);
+  await expect(page.getByText('Waiting for schema from host.')).toBeVisible();
+});
+
+test('supports iframe-style YAML load and export messages', async ({ page }) => {
+  await page.goto('/');
+
+  const loaded = await page.evaluate(async (yaml) => {
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('Timed out waiting for dhtb.loaded')), 10_000);
+      const listener = (event: MessageEvent) => {
+        if (event.data?.type === 'dhtb.loaded') {
+          window.clearTimeout(timer);
+          window.removeEventListener('message', listener);
+          resolve(event.data);
+        }
+      };
+      window.addEventListener('message', listener);
+      window.postMessage({ type: 'dhtb.loadYaml', yaml, name: 'host_loaded', sourceId: 'host:demo' }, '*');
+    });
+  }, HOST_SCHEMA);
+
+  expect(loaded.schemaName).toBe('host_loaded');
+  await expect(page.locator('.schema-name')).toHaveText('host_loaded');
+
+  const exported = await page.evaluate(async () => {
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('Timed out waiting for dhtb.exported')), 10_000);
+      const listener = (event: MessageEvent) => {
+        if (event.data?.type === 'dhtb.exported') {
+          window.clearTimeout(timer);
+          window.removeEventListener('message', listener);
+          resolve(event.data);
+        }
+      };
+      window.addEventListener('message', listener);
+      window.postMessage({ type: 'dhtb.exportYaml' }, '*');
+    });
+  });
+
+  expect(exported.type).toBe('dhtb.exported');
+  expect(exported.yaml).toContain('host_id');
 });

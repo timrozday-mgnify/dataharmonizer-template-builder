@@ -16,8 +16,9 @@ The intended workflow is:
    `../mimicc-ena-submission-assistant`, for rebuilding embedded
    DataHarmonizer templates.
 
-This repository is currently scaffolded for documentation and project hygiene.
-The next step is an implementation plan.
+The app can run standalone or be embedded by a larger local project. Host
+projects can provide LinkML YAML through HTTP or iframe messages and retrieve
+generated LinkML YAML without this project writing into host directories.
 
 ## Local Context
 
@@ -117,10 +118,62 @@ docker compose down
 If it is running in the foreground, `Ctrl-C` also stops the running process;
 then run `docker compose down` to remove the container and network.
 
+## Host Integration
+
+Host-facing API:
+
+```text
+POST /api/integrations/sessions
+PUT  /api/integrations/sessions/{session_id}/tables
+GET  /api/integrations/sessions/{session_id}/yaml
+GET  /api/frontend-config
+```
+
+Typical flow for a larger app:
+
+1. Send current LinkML YAML to `POST /api/integrations/sessions`.
+2. Let the user edit and preview in this UI.
+3. Request generated LinkML from `GET /api/integrations/sessions/{session_id}/yaml`.
+4. Rebuild or persist the schema in the host app.
+
+The frontend can be configured by setting `DHTB_FRONTEND_CONFIG_JSON`. For an
+embedded host-managed workflow:
+
+```bash
+export DHTB_FRONTEND_CONFIG_JSON='{
+  "showImportButton": false,
+  "showExportButton": false,
+  "showGenerateButton": true,
+  "showPreviewButton": true,
+  "showDiagnostics": true,
+  "allowExampleSchema": false,
+  "hostName": "MIMICC ENA Submission Assistant",
+  "hostMode": "embedded"
+}'
+```
+
+When embedded in an iframe, the browser UI accepts:
+
+```js
+iframe.contentWindow.postMessage({
+  type: "dhtb.loadYaml",
+  yaml,
+  name: "mimicc_sample",
+  sourceId: "mimicc:schema"
+}, "*");
+
+iframe.contentWindow.postMessage({ type: "dhtb.exportYaml" }, "*");
+```
+
+It replies with `dhtb.loaded`, `dhtb.exported`, `dhtb.state`,
+`dhtb.changed`, or `dhtb.error` messages.
+
+For `../mimicc-ena-submission-assistant`, the returned YAML can be passed to
+its existing `/api/dh/build` endpoint as `schema_yaml`.
+
 ## Current Status
 
-- Git repository initialized.
-- Pre-commit configuration added.
-- Documentation added for scope, architecture assumptions, integration points,
-  and MIMICC LinkML property coverage.
-- No browser implementation has been started yet.
+- Browser schema-table editor with enum workspace.
+- Python backend conversion API.
+- DataHarmonizer schema preview with native DataHarmonizer validation toolbar.
+- Host integration HTTP API and iframe message bridge.

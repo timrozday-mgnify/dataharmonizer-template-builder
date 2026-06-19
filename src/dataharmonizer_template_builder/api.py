@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,17 @@ converter = ConversionService()
 FRONTEND_DIST = Path("frontend/dist")
 FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 VITE_HASHED_ASSET_PREFIXES = ("index-", "jquery-", "_dh-preview-library-")
+FRONTEND_CONFIG_ENV = "DHTB_FRONTEND_CONFIG_JSON"
+DEFAULT_FRONTEND_CONFIG: dict[str, Any] = {
+    "showImportButton": True,
+    "showExportButton": True,
+    "showGenerateButton": True,
+    "showPreviewButton": True,
+    "showDiagnostics": True,
+    "allowExampleSchema": True,
+    "hostName": "",
+    "hostMode": "standalone",
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +63,13 @@ class ImportRequest(BaseModel):
     name: str | None = None
 
 
+class IntegrationSessionRequest(ImportRequest):
+    """Host-facing request for opening a schema editing session."""
+
+    source_id: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
 class TablesRequest(BaseModel):
     """Request carrying editable tables."""
 
@@ -59,12 +79,35 @@ class TablesRequest(BaseModel):
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     """Return backend health and optional tool status."""
-    return {"ok": True, "docker_available": dh_compile.docker_available()}
+    _, frontend_config_warning = _frontend_config()
+    return {
+        "ok": True,
+        "docker_available": dh_compile.docker_available(),
+        "frontend_config_warning": frontend_config_warning,
+    }
+
+
+@app.get("/api/frontend-config")
+def frontend_config() -> dict[str, Any]:
+    """Return backend-owned frontend feature flags for standalone or embedded use."""
+    config, _ = _frontend_config()
+    return config
 
 
 @app.post("/api/schemas/import")
 def import_schema(request: ImportRequest) -> dict[str, Any]:
     """Import LinkML YAML text into editable tables."""
+    return _create_schema_session(request)
+
+
+@app.post("/api/integrations/sessions")
+def integration_create_session(request: IntegrationSessionRequest) -> dict[str, Any]:
+    """Create an editable schema session from host-provided LinkML YAML."""
+    return _create_schema_session(request)
+
+
+def _create_schema_session(request: ImportRequest) -> dict[str, Any]:
+    """Import LinkML YAML text and create a process-local editing session."""
     try:
         schema, editable_tables, diagnostics = converter.import_yaml(request.yaml)
     except ValueError as exc:
@@ -74,12 +117,16 @@ def import_schema(request: ImportRequest) -> dict[str, Any]:
         source_yaml=request.yaml,
         schema_name=schema_name,
         tables=editable_tables,
+        source_id=getattr(request, "source_id", None),
+        metadata=getattr(request, "metadata", None),
     )
     session.diagnostics = diagnostics
     return {
         "session_id": session.session_id,
         "schema_name": session.schema_name,
         "tables": editable_tables,
+        "source_id": session.source_id,
+        "metadata": session.metadata,
         "diagnostics": [diagnostic.to_dict() for diagnostic in diagnostics],
     }
 
@@ -112,11 +159,28 @@ def update_tables(session_id: str, request: TablesRequest) -> dict[str, Any]:
     return session.to_dict()
 
 
+@app.put("/api/integrations/sessions/{session_id}/tables")
+def integration_update_tables(session_id: str, request: TablesRequest) -> dict[str, Any]:
+    """Replace editable tables for a host-managed session."""
+    return update_tables(session_id, request)
+
+
 @app.post("/api/sessions/{session_id}/generate")
 def generate(session_id: str, request: TablesRequest | None = None) -> dict[str, Any]:
     """Generate LinkML YAML and preview schema JSON from editable tables."""
+    return _generate_session_yaml(session_id, request.tables if request else None)
+
+
+@app.get("/api/integrations/sessions/{session_id}/yaml")
+def integration_session_yaml(session_id: str) -> dict[str, Any]:
+    """Generate current LinkML YAML for a host-managed session."""
+    return _generate_session_yaml(session_id, None)
+
+
+def _generate_session_yaml(session_id: str, editable_tables: TableRows | None) -> dict[str, Any]:
+    """Generate LinkML YAML and DataHarmonizer preview schema for a session."""
     session = _session_or_404(session_id)
-    editable_tables = request.tables if request else session.tables
+    editable_tables = editable_tables if editable_tables is not None else session.tables
     yaml_text, schema, diagnostics = converter.generate_yaml(editable_tables)
     diagnostics.extend(validation.validate_schema(schema))
     schema_json, compile_diagnostics = dh_compile.compile_schema_json(yaml_text)
@@ -157,6 +221,24 @@ def _session_or_404(session_id: str):
         return store.get(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown session.") from exc
+
+
+def _frontend_config() -> tuple[dict[str, Any], str | None]:
+    """Return frontend config plus a warning if env config could not be parsed."""
+    raw = os.environ.get(FRONTEND_CONFIG_ENV)
+    config = dict(DEFAULT_FRONTEND_CONFIG)
+    if not raw:
+        return config, None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return config, f"{FRONTEND_CONFIG_ENV} is not valid JSON: {exc}"
+    if not isinstance(parsed, dict):
+        return config, f"{FRONTEND_CONFIG_ENV} must be a JSON object."
+    for key, value in parsed.items():
+        if key in config:
+            config[key] = value
+    return config, None
 
 
 def _resolve_frontend_asset(asset_name: str) -> Path | None:
