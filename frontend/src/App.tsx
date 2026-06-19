@@ -14,10 +14,10 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { generateSchema, importSchema } from './api';
+import { createIntegrationSession, generateSchema, getFrontendConfig } from './api';
 import { loadDataHarmonizerLibrary } from './dataHarmonizerLibrary';
 import type { AppContext } from 'data-harmonizer';
-import type { Diagnostic, GenerateResponse, Row, Tables } from './types';
+import type { Diagnostic, FrontendConfig, GenerateResponse, ImportResponse, Row, Tables } from './types';
 
 const EXAMPLE_SCHEMA = `id: https://example.org/template-builder-demo
 name: template_builder_demo
@@ -63,6 +63,16 @@ enums:
 
 const TABLE_ORDER = ['schema', 'classes', 'slots', 'enums', 'permissible_values', 'annotations'];
 const ENUM_WORKSPACE = '__enum_workspace';
+const DEFAULT_FRONTEND_CONFIG: FrontendConfig = {
+  showImportButton: true,
+  showExportButton: true,
+  showGenerateButton: true,
+  showPreviewButton: true,
+  showDiagnostics: true,
+  allowExampleSchema: true,
+  hostName: '',
+  hostMode: 'standalone'
+};
 
 export function App() {
   const [yamlInput, setYamlInput] = useState(EXAMPLE_SCHEMA);
@@ -76,6 +86,7 @@ export function App() {
   const [previewGenerated, setPreviewGenerated] = useState<GenerateResponse | null>(null);
   const [maximizedPane, setMaximizedPane] = useState<'table' | 'preview' | null>(null);
   const [openPopup, setOpenPopup] = useState<'import' | 'export' | null>(null);
+  const [frontendConfig, setFrontendConfig] = useState<FrontendConfig>(DEFAULT_FRONTEND_CONFIG);
   const [busy, setBusy] = useState(false);
   const tableNames = useMemo(
     () => TABLE_ORDER.filter((name) => tables[name]).concat(Object.keys(tables).filter((name) => !TABLE_ORDER.includes(name))),
@@ -83,51 +94,153 @@ export function App() {
   );
   const enumNames = useMemo(() => new Set((tables.enums ?? []).map((row) => cellText(row.enum)).filter(Boolean)), [tables]);
 
-  async function onImport() {
+  useEffect(() => {
+    let cancelled = false;
+    getFrontendConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setFrontendConfig({ ...DEFAULT_FRONTEND_CONFIG, ...config });
+        if (!config.allowExampleSchema && !sessionId) {
+          setYamlInput('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFrontendConfig(DEFAULT_FRONTEND_CONFIG);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const readyMessage = {
+      type: 'dhtb.ready',
+      config: frontendConfig,
+      sessionId,
+      schemaName
+    };
+    window.parent?.postMessage(readyMessage, '*');
+  }, [frontendConfig, schemaName, sessionId]);
+
+  useEffect(() => {
+    function reply(event: MessageEvent, payload: Record<string, unknown>) {
+      const targetOrigin = event.origin === 'null' ? '*' : event.origin;
+      event.source?.postMessage(payload, { targetOrigin });
+    }
+
+    async function handleMessage(event: MessageEvent) {
+      const data = event.data as Record<string, unknown> | null;
+      if (!data || typeof data !== 'object' || typeof data.type !== 'string' || !data.type.startsWith('dhtb.')) {
+        return;
+      }
+      try {
+        if (data.type === 'dhtb.loadYaml') {
+          if (typeof data.yaml !== 'string') {
+            throw new Error('dhtb.loadYaml requires a yaml string.');
+          }
+          const response = await loadYaml(data.yaml, {
+            name: typeof data.name === 'string' ? data.name : undefined,
+            sourceId: typeof data.sourceId === 'string' ? data.sourceId : undefined,
+            metadata: isRecord(data.metadata) ? data.metadata : undefined
+          });
+          reply(event, {
+            type: 'dhtb.loaded',
+            sessionId: response.session_id,
+            schemaName: response.schema_name,
+            diagnostics: response.diagnostics
+          });
+        } else if (data.type === 'dhtb.exportYaml') {
+          const response = await generateCurrentYaml();
+          if (!response) throw new Error('No schema session is loaded.');
+          reply(event, {
+            type: 'dhtb.exported',
+            sessionId,
+            schemaName,
+            yaml: response.yaml,
+            schema: response.schema,
+            schema_json: response.schema_json,
+            diagnostics: response.diagnostics
+          });
+        } else if (data.type === 'dhtb.getState') {
+          reply(event, {
+            type: 'dhtb.state',
+            sessionId,
+            schemaName,
+            diagnostics,
+            dirty: Boolean(sessionId && !generated)
+          });
+        }
+      } catch (error) {
+        reply(event, {
+          type: 'dhtb.error',
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [diagnostics, generated, loadYaml, generateCurrentYaml, schemaName, sessionId]);
+
+  function applyImportResponse(response: ImportResponse, yaml: string) {
+    setYamlInput(yaml);
+    setSessionId(response.session_id);
+    setSchemaName(response.schema_name);
+    setTables(response.tables);
+    setDiagnostics(response.diagnostics);
+    setGenerated(null);
+    setPreviewGenerated(null);
+    setOpenPopup(null);
+    setActiveTable(response.tables.slots ? 'slots' : Object.keys(response.tables)[0] ?? '');
+    setSelectedEnum(firstReferencedEnum(response.tables) || cellText(response.tables.enums?.[0]?.enum));
+  }
+
+  async function loadYaml(
+    yaml: string,
+    options: { name?: string; sourceId?: string; metadata?: Record<string, unknown> } = {}
+  ): Promise<ImportResponse> {
     setBusy(true);
     try {
-      const response = await importSchema(yamlInput);
-      setSessionId(response.session_id);
-      setSchemaName(response.schema_name);
-      setTables(response.tables);
+      const response = await createIntegrationSession({ yaml, ...options });
+      applyImportResponse(response, yaml);
+      return response;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onImport() {
+    await loadYaml(yamlInput);
+  }
+
+  async function generateCurrentYaml({ updatePreview = false } = {}): Promise<GenerateResponse | null> {
+    if (!sessionId) return null;
+    setBusy(true);
+    try {
+      const response = await generateSchema(sessionId, tables);
+      setGenerated(response);
+      if (updatePreview) {
+        setPreviewGenerated(response);
+      }
       setDiagnostics(response.diagnostics);
-      setGenerated(null);
-      setPreviewGenerated(null);
-      setOpenPopup(null);
-      setActiveTable(response.tables.slots ? 'slots' : Object.keys(response.tables)[0] ?? '');
-      setSelectedEnum(firstReferencedEnum(response.tables) || cellText(response.tables.enums?.[0]?.enum));
+      return response;
     } finally {
       setBusy(false);
     }
   }
 
   async function onGenerate() {
-    if (!sessionId) return;
-    setBusy(true);
-    try {
-      const response = await generateSchema(sessionId, tables);
-      setGenerated(response);
-      setDiagnostics(response.diagnostics);
-    } finally {
-      setBusy(false);
-    }
+    await generateCurrentYaml();
   }
 
   async function onPreview() {
-    if (!sessionId) return;
-    setBusy(true);
-    try {
-      const response = await generateSchema(sessionId, tables);
-      setGenerated(response);
-      setPreviewGenerated(response);
-      setDiagnostics(response.diagnostics);
-    } finally {
-      setBusy(false);
-    }
+    await generateCurrentYaml({ updatePreview: true });
   }
 
   function updateRows(tableName: string, rows: Row[]) {
     setTables((current) => ({ ...current, [tableName]: rows }));
+    setGenerated(null);
+    window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
   }
 
   function openEnum(enumName: string) {
@@ -141,20 +254,21 @@ export function App() {
         <div>
           <p className="eyebrow">LinkML to Schemasheets</p>
           <h1>Template Builder</h1>
+          {frontendConfig.hostName ? <p className="host-name">{frontendConfig.hostName}</p> : null}
         </div>
         <div className="schema-name">{schemaName || 'No schema loaded'}</div>
-        <button className="primary command" onClick={() => setOpenPopup('import')} disabled={busy}>
+        {frontendConfig.showImportButton ? <button className="primary command" onClick={() => setOpenPopup('import')} disabled={busy}>
           <FileInput size={18} /> Import YAML
-        </button>
-        <button className="command" onClick={onGenerate} disabled={!sessionId || busy}>
+        </button> : null}
+        {frontendConfig.showGenerateButton ? <button className="command" onClick={onGenerate} disabled={!sessionId || busy}>
           <RefreshCw size={18} /> Generate
-        </button>
-        <button className="command" onClick={onPreview} disabled={!sessionId || busy}>
+        </button> : null}
+        {frontendConfig.showPreviewButton ? <button className="command" onClick={onPreview} disabled={!sessionId || busy}>
           <Eye size={18} /> Preview
-        </button>
-        <button className="command" onClick={() => setOpenPopup('export')} disabled={busy}>
+        </button> : null}
+        {frontendConfig.showExportButton ? <button className="command" onClick={() => setOpenPopup('export')} disabled={busy}>
           <Download size={18} /> Export YAML
-        </button>
+        </button> : null}
         <nav className="table-nav" aria-label="Tables">
           {tables.enums ? (
             <button
@@ -178,15 +292,15 @@ export function App() {
 
       <section className="workspace">
         <div className="workspace-toolbar">
-          <button className="compact" onClick={() => setOpenPopup('import')} disabled={busy}>
+          {frontendConfig.showImportButton ? <button className="compact" onClick={() => setOpenPopup('import')} disabled={busy}>
             <FileInput size={15} /> Import YAML
-          </button>
-          <button className="compact" onClick={() => setOpenPopup('export')} disabled={busy}>
+          </button> : null}
+          {frontendConfig.showExportButton ? <button className="compact" onClick={() => setOpenPopup('export')} disabled={busy}>
             <Download size={15} /> Export YAML
-          </button>
-          <div className="io-diagnostics">
+          </button> : null}
+          {frontendConfig.showDiagnostics ? <div className="io-diagnostics">
             <Diagnostics diagnostics={diagnostics} />
-          </div>
+          </div> : null}
         </div>
 
         <div className={`split-workspace ${maximizedPane ? `max-${maximizedPane}` : ''}`}>
@@ -220,7 +334,9 @@ export function App() {
               onOpenEnum={openEnum}
             />
           ) : (
-            <div className="empty-state">Import a schema.</div>
+            <div className="empty-state">
+              {frontendConfig.allowExampleSchema ? 'Import a schema.' : 'Waiting for schema from host.'}
+            </div>
           )}
         </div>
 
@@ -243,7 +359,7 @@ export function App() {
         </div>
         </div>
       </section>
-      {openPopup === 'import' ? (
+      {openPopup === 'import' && frontendConfig.showImportButton ? (
         <div className="popup-backdrop" role="presentation" onMouseDown={() => setOpenPopup(null)}>
           <section className="popup-panel" role="dialog" aria-modal="true" aria-label="Import YAML" onMouseDown={(event) => event.stopPropagation()}>
             <div className="popup-heading">
@@ -265,7 +381,7 @@ export function App() {
           </section>
         </div>
       ) : null}
-      {openPopup === 'export' ? (
+      {openPopup === 'export' && frontendConfig.showExportButton ? (
         <div className="popup-backdrop" role="presentation" onMouseDown={() => setOpenPopup(null)}>
           <section className="popup-panel" role="dialog" aria-modal="true" aria-label="Export YAML" onMouseDown={(event) => event.stopPropagation()}>
             <div className="popup-heading">
@@ -709,6 +825,10 @@ type PreviewAppContext = AppContext & {
 
 function cellText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function firstReferencedEnum(tables: Tables): string {

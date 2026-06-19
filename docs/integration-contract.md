@@ -1,25 +1,82 @@
 # Integration Contract
 
-This document captures the expected contract with larger projects. It is a
-starting point for the implementation plan, not a finalized API.
+This document captures the supported contract with larger projects.
 
 ## Inputs
 
-The tool should accept:
+The tool accepts:
 
 - LinkML YAML text
 - a LinkML YAML file upload
-- host-provided schema content from a browser integration
-- optional template metadata, such as display name and target class
+- host-provided schema content from HTTP or iframe integrations
+- optional host metadata, such as source ID and display name
 
 ## Outputs
 
-The tool should produce:
+The tool produces:
 
 - updated LinkML YAML
-- validation diagnostics
+- schema diagnostics
 - optionally, edited Schemasheets table data for debugging or round-trip tests
 - a previewable DataHarmonizer schema state
+
+## HTTP API
+
+Host-facing endpoints:
+
+- `POST /api/integrations/sessions`
+  - request: `{ "yaml": "...", "name": "...", "source_id": "...", "metadata": { ... } }`
+  - response: `session_id`, `schema_name`, editable `tables`, diagnostics, source metadata
+- `PUT /api/integrations/sessions/{session_id}/tables`
+  - request: `{ "tables": { ... } }`
+  - response: updated session summary
+- `GET /api/integrations/sessions/{session_id}/yaml`
+  - response: generated LinkML `yaml`, schema dict, DataHarmonizer preview `schema_json`, diagnostics
+- `GET /api/frontend-config`
+  - response: frontend feature flags for standalone or embedded use
+
+The existing `/api/schemas/import`, `/api/sessions/{id}/generate`, and
+`/api/sessions/{id}/export` routes remain available for the standalone app.
+
+## Frontend Configuration
+
+The backend owns frontend configuration. Set `DHTB_FRONTEND_CONFIG_JSON` to a
+JSON object overriding defaults, for example:
+
+```json
+{
+  "showImportButton": false,
+  "showExportButton": false,
+  "showGenerateButton": true,
+  "showPreviewButton": true,
+  "showDiagnostics": true,
+  "allowExampleSchema": false,
+  "hostName": "MIMICC ENA Submission Assistant",
+  "hostMode": "embedded"
+}
+```
+
+Use this when a larger project wants to manage YAML import/export itself while
+embedding this frontend.
+
+## Iframe Messages
+
+The frontend also supports a browser `postMessage` bridge.
+
+Inbound messages:
+
+- `{ type: "dhtb.loadYaml", yaml, name?, sourceId?, metadata? }`
+- `{ type: "dhtb.exportYaml" }`
+- `{ type: "dhtb.getState" }`
+
+Outbound messages:
+
+- `{ type: "dhtb.ready", config, sessionId, schemaName }`
+- `{ type: "dhtb.loaded", sessionId, schemaName, diagnostics }`
+- `{ type: "dhtb.exported", sessionId, schemaName, yaml, schema, schema_json, diagnostics }`
+- `{ type: "dhtb.state", sessionId, schemaName, diagnostics, dirty }`
+- `{ type: "dhtb.changed", sessionId, schemaName }`
+- `{ type: "dhtb.error", message }`
 
 ## Host Project Responsibilities
 
@@ -44,12 +101,10 @@ This tool should be responsible for:
 
 ## MIMICC Assistant Target
 
-`../mimicc-ena-submission-assistant` should eventually be able to:
+`../mimicc-ena-submission-assistant` can:
 
-1. provide the current MIMICC schema to this tool
+1. provide the current MIMICC schema to this tool through HTTP or iframe messaging
 2. let a user edit the schema in the browser
-3. receive updated LinkML YAML
-4. trigger its existing DataHarmonizer bundle rebuild path
-
-The first implementation plan should specify whether this is embedded directly
-or served as a separate local app.
+3. receive updated LinkML YAML from `/api/integrations/sessions/{id}/yaml` or `dhtb.exportYaml`
+4. pass that YAML to its existing `/api/dh/build` endpoint
+5. reload its DataHarmonizer iframe after build success

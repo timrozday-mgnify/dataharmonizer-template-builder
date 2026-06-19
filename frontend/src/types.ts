@@ -15,6 +15,8 @@ export type ImportResponse = {
   session_id: string;
   schema_name: string;
   tables: Tables;
+  source_id?: string | null;
+  metadata?: Record<string, unknown>;
   diagnostics: Diagnostic[];
 };
 
@@ -23,4 +25,15 @@ export type GenerateResponse = {
   schema: Record<string, unknown>;
   schema_json: Record<string, unknown>;
   diagnostics: Diagnostic[];
+};
+
+export type FrontendConfig = {
+  showImportButton: boolean;
+  showExportButton: boolean;
+  showGenerateButton: boolean;
+  showPreviewButton: boolean;
+  showDiagnostics: boolean;
+  allowExampleSchema: boolean;
+  hostName: string;
+  hostMode: string;
 };

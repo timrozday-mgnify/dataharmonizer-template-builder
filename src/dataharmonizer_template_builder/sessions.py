@@ -19,6 +19,8 @@ class SessionStore:
         source_yaml: str,
         schema_name: str,
         tables: TableRows,
+        source_id: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> SchemaSession:
         """Create and return a session."""
         session_id = uuid.uuid4().hex
@@ -27,6 +29,8 @@ class SessionStore:
             source_yaml=source_yaml,
             schema_name=schema_name,
             tables=tables,
+            source_id=source_id,
+            metadata=metadata or {},
         )
         self._sessions[session_id] = session
         return session

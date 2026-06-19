@@ -41,6 +41,8 @@ class SchemaSession:
     source_yaml: str
     schema_name: str
     tables: TableRows
+    source_id: str | None = None
+    metadata: JsonDict = field(default_factory=dict)
     latest_yaml: str | None = None
     latest_schema: JsonDict | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
@@ -51,6 +53,8 @@ class SchemaSession:
             "session_id": self.session_id,
             "schema_name": self.schema_name,
             "tables": self.tables,
+            "source_id": self.source_id,
+            "metadata": self.metadata,
             "latest_yaml": self.latest_yaml,
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
         }
