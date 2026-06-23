@@ -3,8 +3,8 @@
 Adds Docker-in-Docker path validation via the /hostroot mount and creates the
 schema/output directories on the host filesystem before invoking the core
 library. Mirrors mimicc-ena-submission-assistant's server/dh_builder_runner.py,
-but builds the "template_builder_preview" template via a separate
-dh-template-builder-dh-builder image tag.
+but builds the "template_builder_preview" template against the same shared
+dh-builder image (mimicc-ena-submission-assistant uses "mimicc").
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from dh_builder_lib import iter_dh_builder_logs as _iter_logs
 
 _HOSTROOT = Path(os.environ.get("HOSTROOT", "/hostroot"))
 _TEMPLATE = "template_builder_preview"
-_IMAGE = os.environ.get("DH_BUILDER_IMAGE", "dh-template-builder-dh-builder")
 
 
 def iter_dh_builder_logs(
@@ -35,5 +34,4 @@ def iter_dh_builder_logs(
         schema_dir=schema_host_dir,
         output_dir=output_host_dir,
         template=_TEMPLATE,
-        image=_IMAGE,
     )

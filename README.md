@@ -131,9 +131,10 @@ Beyond the in-process `schema.json` compile (`dh_compile.py`), the app can
 trigger a full DataHarmonizer web bundle rebuild (webpack build, not just the
 schema compile) for a session, via a sibling Docker container — the same
 on-demand-rebuild pattern `mimicc-ena-submission-assistant` uses, sharing the
-[dh-builder](https://github.com/timrozday-mgnify/dh-builder) image (built
-locally as `dh-template-builder-dh-builder`, run with
-`TEMPLATE=template_builder_preview`):
+exact same [dh-builder](https://github.com/timrozday-mgnify/dh-builder) image
+(built locally as `dh-builder`, run here with
+`TEMPLATE=template_builder_preview` — `mimicc-ena-submission-assistant` runs
+the identical image with `TEMPLATE=mimicc`):
 
 ```text
 POST /api/dh-builder/build              {"session_id": "..."}  -> {"job_id": "..."}
@@ -143,13 +144,14 @@ GET  /api/dh-builder/build/stream/{job_id}   (SSE: log lines, then {"done": true
 Once a rebuild completes, the bundle is served at `/dh-preview/`. This
 requires the Docker-in-Docker mounts in `docker-compose.yml` (the app
 container needs the host's `docker.sock` to spawn the sibling container) and
-the `dh-template-builder-dh-builder` image built once:
+the `dh-builder` image built once (shared with `mimicc-ena-submission-assistant`
+if you also run that app — no need to build it twice):
 
 ```bash
 git clone https://github.com/timrozday-mgnify/dh-builder.git ../dh-builder
 docker build -f ../dh-builder/Dockerfile \
   --build-context dataharmonizer-src=../DataHarmonizer \
-  -t dh-template-builder-dh-builder ../dh-builder
+  -t dh-builder ../dh-builder
 ```
 
 To stop the Compose stack:
