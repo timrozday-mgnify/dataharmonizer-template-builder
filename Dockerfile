@@ -2,6 +2,13 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app
 COPY --from=dataharmonizer-src . /DataHarmonizer
+# DataHarmonizer's own node_modules aren't part of its git source (gitignored),
+# so they have to be installed here rather than assumed present — this only
+# worked before by accident, when dataharmonizer-src was a local checkout that
+# happened to already have node_modules from a manual `yarn install`. Matches
+# dh-builder's dh_build_steps.sh, which installs DataHarmonizer's deps the
+# same way.
+RUN cd /DataHarmonizer && yarn install --frozen-lockfile
 COPY package.json ./
 RUN npm install
 COPY index.html tsconfig.json vite.config.ts playwright.config.ts ./
