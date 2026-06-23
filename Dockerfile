@@ -10,10 +10,15 @@ RUN npm run build
 
 FROM python:3.11-slim
 
+# docker CLI is required so the app can spawn the dh-builder sibling
+# container via the mounted docker socket (on-demand DH bundle rebuild).
+RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=linkml-lib . /linkml-lib
+COPY --from=dh-builder-lib . /dh-builder-lib
 COPY requirements.txt .
-RUN pip install --no-cache-dir /linkml-lib && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir /linkml-lib /dh-builder-lib && pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 COPY pyproject.toml README.md ./

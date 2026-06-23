@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
-from dataharmonizer_template_builder import dh_compile
+from dataharmonizer_template_builder import dh_builder_runner, dh_compile
 from dataharmonizer_template_builder.conversion import ConversionService
 from dataharmonizer_template_builder.models import Diagnostic, TableRows
 from dataharmonizer_template_builder.sessions import store
@@ -23,6 +28,12 @@ from dataharmonizer_template_builder import validation
 
 app = FastAPI(title="DataHarmonizer Template Builder")
 converter = ConversionService()
+_executor = ThreadPoolExecutor(max_workers=4)
+_jobs: dict[str, dict[str, Any]] = {}
+_HOST_DH_OUTPUT_DIR = os.environ.get("HOST_DH_OUTPUT_DIR", "dhtb-dh-output")
+_HOST_DH_SCHEMA_DIR = os.environ.get("HOST_DH_SCHEMA_DIR", "dhtb-dh-schema")
+_DH_SCHEMA_CONTAINER_DIR = Path(os.environ.get("DH_SCHEMA_CONTAINER_DIR", "/dh-schema"))
+_DH_OUTPUT_DIR = Path("dh-output")
 FRONTEND_DIST = Path("frontend/dist")
 FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 VITE_HASHED_ASSET_PREFIXES = ("index-", "jquery-", "_dh-preview-library-")
@@ -74,6 +85,12 @@ class TablesRequest(BaseModel):
     """Request carrying editable tables."""
 
     tables: TableRows
+
+
+class DhBuildRequest(BaseModel):
+    """Request to rebuild a full DataHarmonizer preview bundle for a session."""
+
+    session_id: str
 
 
 @app.get("/api/health")
@@ -204,6 +221,74 @@ def export_schema(session_id: str, request: TablesRequest | None = None) -> dict
     return {"yaml": generated["yaml"], "diagnostics": generated["diagnostics"]}
 
 
+# ---------------------------------------------------------------------------
+# DataHarmonizer preview bundle: on-demand rebuild (SSE)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/dh-builder/build")
+def dh_builder_build(req: DhBuildRequest) -> dict[str, str]:
+    # Rebuilding the preview bundle spawns a sibling container on the host
+    # Docker daemon and writes the globally-served bundle.
+    _session_or_404(req.session_id)
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {"config": req.model_dump(), "status": "pending", "results": []}
+    return {"job_id": job_id}
+
+
+@app.get("/api/dh-builder/build/stream/{job_id}")
+async def dh_builder_build_stream(job_id: str) -> EventSourceResponse:
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = _jobs[job_id]
+
+    async def event_generator():
+        if job["status"] != "pending":
+            yield {"data": json.dumps({"error": "Job already started or completed"})}
+            return
+        job["status"] = "running"
+        session_id = job["config"]["session_id"]
+
+        generated = _generate_session_yaml(session_id, None)
+        _DH_SCHEMA_CONTAINER_DIR.mkdir(parents=True, exist_ok=True)
+        (_DH_SCHEMA_CONTAINER_DIR / "mimicc.yaml").write_text(generated["yaml"])
+
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        def _produce() -> None:
+            gen = dh_builder_runner.iter_dh_builder_logs(
+                schema_host_dir=_HOST_DH_SCHEMA_DIR,
+                output_host_dir=_HOST_DH_OUTPUT_DIR,
+            )
+            exit_code: int | None = None
+            try:
+                while True:
+                    line = next(gen)
+                    loop.call_soon_threadsafe(queue.put_nowait, ("line", line))
+            except StopIteration as si:
+                exit_code = si.value
+            except Exception as exc:  # noqa: BLE001
+                loop.call_soon_threadsafe(queue.put_nowait, ("line", f"ERROR: {exc}"))
+                exit_code = 1
+            result = {"success": exit_code == 0, "exit_code": exit_code}
+            loop.call_soon_threadsafe(queue.put_nowait, ("__DONE__", result))
+
+        loop.run_in_executor(_executor, _produce)
+
+        while True:
+            kind, payload = await queue.get()
+            ts = datetime.now(UTC).isoformat()
+            if kind == "__DONE__":
+                job["status"] = "done"
+                job["results"] = payload
+                yield {"data": json.dumps({"done": True, "result": payload, "ts": ts})}
+                break
+            yield {"data": json.dumps({"line": payload, "ts": ts})}
+
+    return EventSourceResponse(event_generator())
+
+
 @app.get("/assets/{asset_name}")
 def frontend_asset(asset_name: str) -> FileResponse:
     """Serve current Vite chunks for stale hashed asset URLs after rebuilds."""
@@ -261,6 +346,9 @@ def _resolve_frontend_asset(asset_name: str) -> Path | None:
         return matches[0] if matches else None
     return None
 
+
+_DH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/dh-preview", StaticFiles(directory=_DH_OUTPUT_DIR, html=True), name="dh-preview")
 
 try:
     app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
