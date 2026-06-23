@@ -66,16 +66,17 @@ python scripts/check_repo.py
 
 Run the backend and frontend as two local dev servers.
 
-Install the shared sibling library first:
+Install the app extra (pulls in `linkml-lib` as a pinned git dependency — no
+sibling checkout required):
 
 ```bash
-python -m pip install -e ../linkml-lib
+python -m pip install -e ".[app]"
 ```
 
 Backend:
 
 ```bash
-PYTHONPATH=src:../linkml-lib/src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765
+PYTHONPATH=src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765
 ```
 
 Frontend:

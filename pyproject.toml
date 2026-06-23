@@ -19,6 +19,7 @@ app = [
   "fastapi>=0.115",
   "linkml>=1.7",
   "linkml-runtime>=1.8",
+  "linkml-lib @ git+https://github.com/timrozday-mgnify/linkml-lib.git@v0.1.0",
   "python-multipart>=0.0.9",
   "pyyaml>=6",
   "schemasheets>=0.4",
