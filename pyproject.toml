@@ -22,6 +22,7 @@ app = [
   "python-multipart>=0.0.9",
   "pyyaml>=6",
   "schemasheets>=0.4",
+  "sse-starlette",
   "uvicorn[standard]>=0.30",
 ]
 dev = [
@@ -40,4 +41,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "../linkml-lib/src"]
+pythonpath = ["src", "../linkml-lib/src", "../dh-builder"]

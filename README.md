@@ -12,9 +12,12 @@ The intended workflow is:
 4. Let users edit schema fields, slot usage, annotations, comments, defaults,
    enums, and ordering in a spreadsheet interface.
 5. Convert the edited Schemasheets representation back to LinkML.
-6. Hand the updated schema to a larger application, such as
+6. Optionally rebuild a full DataHarmonizer preview bundle for the session
+   in-app (`POST /api/dh-builder/build` + `GET /api/dh-builder/build/stream/{job_id}`,
+   served at `/dh-preview` once built — see "DataHarmonizer preview bundle"
+   below), or hand the updated schema to a larger application, such as
    `../mimicc-ena-submission-assistant`, for rebuilding embedded
-   DataHarmonizer templates.
+   DataHarmonizer templates there instead.
 
 The app can run standalone or be embedded by a larger local project. Host
 projects can provide LinkML YAML through HTTP or iframe messages and retrieve
@@ -107,6 +110,9 @@ Prerequisites:
 - Docker with BuildKit / Compose support for `additional_contexts`
 - sibling DataHarmonizer checkout at `../DataHarmonizer`
 - sibling shared library checkout at `../linkml-lib`
+- sibling [dh-builder](https://github.com/timrozday-mgnify/dh-builder)
+  checkout at `../dh-builder`, needed for the on-demand preview-bundle
+  rebuild (see "DataHarmonizer preview bundle" below)
 
 Run:
 
@@ -114,9 +120,37 @@ Run:
 docker compose up --build
 ```
 
-The Compose build passes `../DataHarmonizer` and `../linkml-lib` into the image
-as additional build contexts. The app installs `linkml-lib` into the Python
-runtime image and uses DataHarmonizer as the frontend library source.
+The Compose build passes `../DataHarmonizer`, `../linkml-lib`, and
+`../dh-builder` into the image as additional build contexts. The app installs
+`linkml-lib` and `dh_builder_lib` into the Python runtime image and uses
+DataHarmonizer as the frontend library source.
+
+## DataHarmonizer preview bundle
+
+Beyond the in-process `schema.json` compile (`dh_compile.py`), the app can
+trigger a full DataHarmonizer web bundle rebuild (webpack build, not just the
+schema compile) for a session, via a sibling Docker container — the same
+on-demand-rebuild pattern `mimicc-ena-submission-assistant` uses, sharing the
+[dh-builder](https://github.com/timrozday-mgnify/dh-builder) image (built
+locally as `dh-template-builder-dh-builder`, run with
+`TEMPLATE=template_builder_preview`):
+
+```text
+POST /api/dh-builder/build              {"session_id": "..."}  -> {"job_id": "..."}
+GET  /api/dh-builder/build/stream/{job_id}   (SSE: log lines, then {"done": true, "result": {...}})
+```
+
+Once a rebuild completes, the bundle is served at `/dh-preview/`. This
+requires the Docker-in-Docker mounts in `docker-compose.yml` (the app
+container needs the host's `docker.sock` to spawn the sibling container) and
+the `dh-template-builder-dh-builder` image built once:
+
+```bash
+git clone https://github.com/timrozday-mgnify/dh-builder.git ../dh-builder
+docker build -f ../dh-builder/Dockerfile \
+  --build-context dataharmonizer-src=../DataHarmonizer \
+  -t dh-template-builder-dh-builder ../dh-builder
+```
 
 To stop the Compose stack:
 

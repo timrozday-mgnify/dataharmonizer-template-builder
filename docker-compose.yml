@@ -5,9 +5,35 @@ services:
       additional_contexts:
         dataharmonizer-src: ../DataHarmonizer
         linkml-lib: ../linkml-lib
+        # dh-builder checkout (https://github.com/timrozday-mgnify/dh-builder),
+        # source of dh_builder_lib (pip-installed below) and the Dockerfile
+        # for the on-demand DH-bundle rebuild image.
+        dh-builder-lib: ../dh-builder
     environment:
       DATAHARMONIZER_DIR: /DataHarmonizer
+      # Named Docker volumes shared with the dh-builder sibling container
+      # (mirrors mimicc-ena-submission-assistant's MIMICC_DH_BUNDLE_DIR/
+      # MIMICC_DH_SCHEMA_DIR convention) -- the app and the sibling container
+      # both mount the same volume rather than a real host path.
+      HOST_DH_OUTPUT_DIR: ${DHTB_DH_OUTPUT_DIR:-dhtb-dh-output}
+      HOST_DH_SCHEMA_DIR: ${DHTB_DH_SCHEMA_DIR:-dhtb-dh-schema}
+      DH_SCHEMA_CONTAINER_DIR: /dh-schema
     ports:
       - "8765:8765"
     volumes:
       - ../DataHarmonizer:/DataHarmonizer:ro
+      # Docker-in-Docker access so the app can spawn the dh-builder sibling
+      # container for on-demand bundle rebuilds (POST /api/dh-builder/build).
+      # Grants the app container Docker-daemon (effectively root-on-host)
+      # access -- there's no read-helper-style sidecar here to isolate it.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/hostroot
+      # Rebuilt bundle, served at /dh-preview, and the schema it was built
+      # from -- shared with the sibling dh-builder container via the same
+      # named volumes (see HOST_DH_OUTPUT_DIR/HOST_DH_SCHEMA_DIR above).
+      - ${DHTB_DH_OUTPUT_DIR:-dhtb-dh-output}:/app/dh-output
+      - ${DHTB_DH_SCHEMA_DIR:-dhtb-dh-schema}:/dh-schema
+
+volumes:
+  dhtb-dh-output:
+  dhtb-dh-schema:
