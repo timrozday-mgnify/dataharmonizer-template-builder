@@ -113,6 +113,16 @@ export function App() {
   }, [sessionId]);
 
   useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    function applyFallbackTheme() {
+      document.documentElement.setAttribute('data-theme', media.matches ? 'dark' : 'light');
+    }
+    applyFallbackTheme();
+    media.addEventListener('change', applyFallbackTheme);
+    return () => media.removeEventListener('change', applyFallbackTheme);
+  }, []);
+
+  useEffect(() => {
     const readyMessage = {
       type: 'dhtb.ready',
       config: frontendConfig,
@@ -161,6 +171,10 @@ export function App() {
             schema_json: response.schema_json,
             diagnostics: response.diagnostics
           });
+        } else if (data.type === 'dhtb.setTheme') {
+          if (data.theme === 'dark' || data.theme === 'light') {
+            document.documentElement.setAttribute('data-theme', data.theme);
+          }
         } else if (data.type === 'dhtb.getState') {
           reply(event, {
             type: 'dhtb.state',

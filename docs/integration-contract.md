@@ -68,6 +68,8 @@ Inbound messages:
 - `{ type: "dhtb.loadYaml", yaml, name?, sourceId?, metadata? }`
 - `{ type: "dhtb.exportYaml" }`
 - `{ type: "dhtb.getState" }`
+- `{ type: "dhtb.setTheme", theme: "dark" | "light" }` — applies the host's
+  resolved light/dark theme to the embedded UI (no reply is sent)
 
 Outbound messages:
 

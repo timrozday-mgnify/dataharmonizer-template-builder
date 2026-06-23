@@ -11,8 +11,9 @@ RUN npm run build
 FROM python:3.11-slim
 
 WORKDIR /app
+COPY --from=linkml-lib . /linkml-lib
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir /linkml-lib && pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 COPY pyproject.toml README.md ./

@@ -4,6 +4,7 @@ services:
       context: .
       additional_contexts:
         dataharmonizer-src: ../DataHarmonizer
+        linkml-lib: ../linkml-lib
     environment:
       DATAHARMONIZER_DIR: /DataHarmonizer
     ports:

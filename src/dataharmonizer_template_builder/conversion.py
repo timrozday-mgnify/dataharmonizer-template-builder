@@ -9,9 +9,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from dataharmonizer_template_builder import linkml_io
 from dataharmonizer_template_builder.models import Diagnostic, TableRows
-from dataharmonizer_template_builder import tables
+from linkml_lib import edit_tables as tables
+from linkml_lib import io as linkml_io
+from linkml_lib.diagnostics import Diagnostic as LinkMLDiagnostic
 
 
 class ConversionService:
@@ -28,7 +29,8 @@ class ConversionService:
         editable_tables: TableRows,
     ) -> tuple[str, dict[str, Any], list[Diagnostic]]:
         """Return LinkML YAML and schema dictionary from editable tables."""
-        schema, diagnostics = tables.tables_to_schema(editable_tables)
+        schema, table_diagnostics = tables.tables_to_schema(editable_tables)
+        diagnostics = [_to_app_diagnostic(diagnostic) for diagnostic in table_diagnostics]
         yaml_text = linkml_io.dump_yaml(schema)
         if shutil.which("sheets2linkml"):
             _, cli_diagnostics = _try_sheets2linkml(editable_tables)
@@ -48,6 +50,16 @@ def _schemasheets_available_diagnostics() -> list[Diagnostic]:
             ),
         )
     ]
+
+
+def _to_app_diagnostic(diagnostic: LinkMLDiagnostic) -> Diagnostic:
+    return Diagnostic(
+        diagnostic.level,
+        diagnostic.message,
+        diagnostic.table,
+        diagnostic.row,
+        path=diagnostic.path,
+    )
 
 
 def _try_sheets2linkml(editable_tables: TableRows) -> tuple[str | None, list[Diagnostic]]:
