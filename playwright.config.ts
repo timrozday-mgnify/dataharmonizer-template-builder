@@ -9,7 +9,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'env PYTHONPATH=src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765',
+      command: 'env PYTHONPATH=src:../linkml-lib/src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765',
       url: 'http://127.0.0.1:8765/api/health',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000

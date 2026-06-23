@@ -25,6 +25,7 @@ generated LinkML YAML without this project writing into host directories.
 The first integration target is the MIMICC ENA submission workflow:
 
 - DataHarmonizer fork: `../DataHarmonizer`, branch `feature/formulas`
+- shared LinkML utilities: `../linkml-lib`
 - MIMICC assistant: `../mimicc-ena-submission-assistant`
 - MIMICC schema source:
   `../ena-submission-dataharmonizer/schemas/mimicc_sample_experiment.yaml`
@@ -37,9 +38,10 @@ assistant.
 
 - `docs/` - product, integration, and schema coverage notes
 - `scripts/` - repository maintenance scripts
-- `src/dataharmonizer_template_builder/` - placeholder Python package for future
-  conversion/server code
-- `tests/` - placeholder test suite
+- `src/dataharmonizer_template_builder/` - FastAPI backend and integration code
+- `../linkml-lib/src/linkml_lib/` - shared LinkML conversion, diagnostics, and
+  DataHarmonizer schema compilation utilities
+- `tests/` - backend test suite
 
 ## Development Checks
 
@@ -61,10 +63,16 @@ python scripts/check_repo.py
 
 Run the backend and frontend as two local dev servers.
 
+Install the shared sibling library first:
+
+```bash
+python -m pip install -e ../linkml-lib
+```
+
 Backend:
 
 ```bash
-PYTHONPATH=src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765
+PYTHONPATH=src:../linkml-lib/src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765
 ```
 
 Frontend:
@@ -98,6 +106,7 @@ Prerequisites:
 
 - Docker with BuildKit / Compose support for `additional_contexts`
 - sibling DataHarmonizer checkout at `../DataHarmonizer`
+- sibling shared library checkout at `../linkml-lib`
 
 Run:
 
@@ -105,9 +114,9 @@ Run:
 docker compose up --build
 ```
 
-The Compose build passes `../DataHarmonizer` into the image as the
-`dataharmonizer-src` build context so the frontend can import DataHarmonizer and
-the backend can use `script/linkml.py` for preview schema compilation.
+The Compose build passes `../DataHarmonizer` and `../linkml-lib` into the image
+as additional build contexts. The app installs `linkml-lib` into the Python
+runtime image and uses DataHarmonizer as the frontend library source.
 
 To stop the Compose stack:
 
