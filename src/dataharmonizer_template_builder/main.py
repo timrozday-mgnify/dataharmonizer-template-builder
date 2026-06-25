@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-import uvicorn
+import os
+import sys
+from pathlib import Path
 
 
 def main() -> None:
-    """Run the FastAPI development server."""
-    uvicorn.run(
-        "dataharmonizer_template_builder.api:app",
-        host="127.0.0.1",
-        port=8765,
-        reload=True,
-    )
+    """Run the Django development server."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+    from django.core.management import execute_from_command_line
+
+    execute_from_command_line(["manage.py", "runserver", "127.0.0.1:8765"])
 
 
 if __name__ == "__main__":
