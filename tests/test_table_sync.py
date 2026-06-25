@@ -67,6 +67,38 @@ def test_annotation_rows_sync_to_slot_annotation_columns() -> None:
     assert slot["annotation_id"] == "sample identifier"
 
 
+def test_legacy_default_unit_annotation_syncs_to_default_unit_column() -> None:
+    tables = schema_to_tables(
+        linkml_io.load_yaml_text(
+            """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    annotations:
+      mimicc_default_unit: mL
+"""
+        )
+    )
+
+    synced, diagnostics = sync_tables(tables, source_table="annotations")
+    slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
+
+    assert diagnostics == []
+    assert slot["annotation_default_unit"] == "mL"
+    assert {
+        "element_type": "slot",
+        "element": "sample_id",
+        "key": "default_unit",
+        "value": "mL",
+    } in synced["annotations"]
+    assert all(row["key"] != "mimicc_default_unit" for row in synced["annotations"])
+
+
 def test_enum_annotations_sync_to_annotation_rows() -> None:
     tables = schema_to_tables(
         linkml_io.load_yaml_text(

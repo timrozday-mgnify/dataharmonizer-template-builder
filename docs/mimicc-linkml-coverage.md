@@ -51,7 +51,7 @@ Nested annotation keys observed:
 
 - `id`
 - `source`
-- `mimicc_default_unit`
+- `default_unit`
 
 ## Enum Properties
 

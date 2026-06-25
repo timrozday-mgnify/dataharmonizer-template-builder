@@ -27,6 +27,9 @@ const ROW_CONTEXT_MENU: Handsontable.plugins.ContextMenu.PredefinedMenuItemKey[]
   'undo',
   'redo'
 ];
+const COLUMN_TITLES: Record<string, string> = {
+  annotation_default_unit: 'Default Unit'
+};
 
 type CellMetaFactory = (rowIndex: number, columnKey: string) => Partial<Handsontable.CellMeta> | undefined;
 
@@ -73,7 +76,7 @@ export function DataGrid({
     () =>
       orderedColumns.map((column) => ({
         data: column,
-        title: column.replaceAll('_', ' ')
+        title: COLUMN_TITLES[column] ?? column.replaceAll('_', ' ')
       })),
     [orderedColumns]
   );

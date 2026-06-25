@@ -38,7 +38,7 @@ slots:
     range: string
     annotations:
       id: sample_id
-      mimicc_default_unit: mL
+      default_unit: mL
 `;
 
 async function importDemoSchema(page: Page) {

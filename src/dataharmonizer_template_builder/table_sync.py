@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import yaml
@@ -19,7 +19,15 @@ ANNOTATION_TABLE = "annotations"
 
 SLOT_ANNOTATION_COLUMNS = {
     "annotation_id": "id",
-    "annotation_mimicc_default_unit": "mimicc_default_unit",
+    "annotation_default_unit": "default_unit",
+}
+
+LEGACY_SLOT_ANNOTATION_COLUMNS = {
+    "mimicc_default_unit": "annotation_default_unit",
+}
+
+LEGACY_SLOT_ROW_COLUMNS = {
+    "annotation_mimicc_default_unit": "annotation_default_unit",
 }
 
 
@@ -61,6 +69,9 @@ def _sync_slot_annotations(tables: TableRows, source_table: str | None) -> None:
     slot_rows_by_name = {
         _cell(row.get("slot")): row for row in tables[SLOT_TABLE] if _cell(row.get("slot"))
     }
+    _migrate_legacy_slot_row_columns(slot_rows_by_name.values())
+    _migrate_legacy_slot_annotations(annotation_rows)
+    _populate_legacy_slot_annotation_columns(annotation_rows, slot_rows_by_name)
 
     if source_table != ANNOTATION_TABLE:
         for slot_name, slot_row in slot_rows_by_name.items():
@@ -75,6 +86,8 @@ def _sync_slot_annotations(tables: TableRows, source_table: str | None) -> None:
         row_key = _row_key_for_annotation(_cell(row.get("key")))
         if slot_row is not None and row_key:
             slot_row[row_key] = row.get("value", "")
+
+    _populate_legacy_slot_annotation_columns(annotation_rows, slot_rows_by_name)
 
 
 def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[Diagnostic]:
@@ -213,6 +226,55 @@ def _row_key_for_annotation(annotation_key: str) -> str:
         if key == annotation_key:
             return row_key
     return ""
+
+
+def _annotation_value(
+    rows: list[JsonDict],
+    element_type: str,
+    element: str,
+    key: str,
+) -> Any:
+    match = next(
+        (
+            row
+            for row in rows
+            if _cell(row.get("element_type")) == element_type
+            and _cell(row.get("element")) == element
+            and _cell(row.get("key")) == key
+        ),
+        None,
+    )
+    return "" if match is None else match.get("value", "")
+
+
+def _migrate_legacy_slot_annotations(rows: list[JsonDict]) -> None:
+    for row in rows:
+        if _cell(row.get("element_type")) != "slot":
+            continue
+        row_key = LEGACY_SLOT_ANNOTATION_COLUMNS.get(_cell(row.get("key")))
+        if row_key:
+            row["key"] = SLOT_ANNOTATION_COLUMNS[row_key]
+
+
+def _migrate_legacy_slot_row_columns(rows: Iterable[JsonDict]) -> None:
+    for row in rows:
+        for legacy_key, row_key in LEGACY_SLOT_ROW_COLUMNS.items():
+            if not _cell(row.get(row_key)) and _cell(row.get(legacy_key)):
+                row[row_key] = row[legacy_key]
+            row.pop(legacy_key, None)
+
+
+def _populate_legacy_slot_annotation_columns(
+    annotation_rows: list[JsonDict],
+    slot_rows_by_name: dict[str, JsonDict],
+) -> None:
+    for slot_name, slot_row in slot_rows_by_name.items():
+        for legacy_key, row_key in LEGACY_SLOT_ANNOTATION_COLUMNS.items():
+            if _cell(slot_row.get(row_key)):
+                continue
+            legacy_value = _annotation_value(annotation_rows, "slot", slot_name, legacy_key)
+            if legacy_value:
+                slot_row[row_key] = legacy_value
 
 
 def _parse_mapping_cell(value: Any) -> tuple[dict[str, Any], bool]:

@@ -2,7 +2,15 @@ import type { Row, Tables } from './types';
 
 const SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
   annotation_id: 'id',
-  annotation_mimicc_default_unit: 'mimicc_default_unit'
+  annotation_default_unit: 'default_unit'
+};
+
+const LEGACY_SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
+  mimicc_default_unit: 'annotation_default_unit'
+};
+
+const LEGACY_SLOT_ROW_COLUMNS: Record<string, string> = {
+  annotation_mimicc_default_unit: 'annotation_default_unit'
 };
 
 type SyncOptions = {
@@ -71,6 +79,9 @@ function syncClassSlotMembership(tables: Tables, sourceTable?: string) {
 }
 
 function syncSlotAnnotations(tables: Tables, sourceTable?: string) {
+  migrateLegacySlotRowColumns(tables);
+  migrateLegacySlotAnnotations(tables);
+
   if (sourceTable !== 'annotations') {
     for (const row of tables.slots ?? []) {
       const slotName = cellText(row.slot);
@@ -198,6 +209,27 @@ function upsertAnnotation(
 
 function rowKeyForAnnotation(annotationKey: string) {
   return Object.entries(SLOT_ANNOTATION_COLUMNS).find(([, key]) => key === annotationKey)?.[0] ?? '';
+}
+
+function migrateLegacySlotRowColumns(tables: Tables) {
+  for (const row of tables.slots ?? []) {
+    for (const [legacyKey, rowKey] of Object.entries(LEGACY_SLOT_ROW_COLUMNS)) {
+      if (!cellText(row[rowKey]) && cellText(row[legacyKey])) {
+        row[rowKey] = row[legacyKey];
+      }
+      delete row[legacyKey];
+    }
+  }
+}
+
+function migrateLegacySlotAnnotations(tables: Tables) {
+  for (const row of tables.annotations ?? []) {
+    if (cellText(row.element_type) !== 'slot') continue;
+    const rowKey = LEGACY_SLOT_ANNOTATION_COLUMNS[cellText(row.key)];
+    if (rowKey) {
+      row.key = SLOT_ANNOTATION_COLUMNS[rowKey];
+    }
+  }
 }
 
 function parseMapping(value: unknown): Record<string, Row[string]> {

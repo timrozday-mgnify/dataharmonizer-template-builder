@@ -33,7 +33,7 @@ slots:
     required: true
     annotations:
       id: sample_id
-      mimicc_default_unit: mL
+      default_unit: mL
   status:
     title: Status
     range: StatusMenu
@@ -91,8 +91,36 @@ def test_tables_to_schema_preserves_slot_usage_and_enums() -> None:
     assert diagnostics == []
     assert rebuilt["classes"]["Test"]["slots"] == ["sample_id", "status"]
     assert rebuilt["classes"]["Test"]["slot_usage"]["status"]["slot_group"] == "Status"
-    assert rebuilt["slots"]["sample_id"]["annotations"]["mimicc_default_unit"] == "mL"
+    assert rebuilt["slots"]["sample_id"]["annotations"]["default_unit"] == "mL"
     assert "ready" in rebuilt["enums"]["StatusMenu"]["permissible_values"]
+
+
+def test_tables_to_schema_migrates_legacy_default_unit_annotation() -> None:
+    schema = linkml_io.load_yaml_text(
+        """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    title: Sample ID
+    annotations:
+      id: sample_id
+      mimicc_default_unit: mL
+"""
+    )
+    editable_tables = schema_to_tables(schema)
+
+    assert editable_tables["slots"][0]["annotation_default_unit"] == "mL"
+
+    rebuilt, diagnostics = tables_to_schema(editable_tables)
+
+    assert diagnostics == []
+    assert rebuilt["slots"]["sample_id"]["annotations"]["default_unit"] == "mL"
+    assert "mimicc_default_unit" not in rebuilt["slots"]["sample_id"]["annotations"]
 
 
 def test_tables_to_schema_preserves_slot_order_separately_from_rank() -> None:
