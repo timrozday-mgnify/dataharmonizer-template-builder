@@ -13,9 +13,10 @@ The intended workflow is:
    enums, and ordering in a spreadsheet interface.
 5. Convert the edited Schemasheets representation back to LinkML.
 6. Optionally rebuild a full DataHarmonizer preview bundle for the session
-   in-app (`POST /api/dh-builder/build` + `GET /api/dh-builder/build/stream/{job_id}`,
-   served at `/dh-preview` once built — see "DataHarmonizer preview bundle"
-   below), or hand the updated schema to a larger application, such as
+   in-app (`POST /api/dh-builder/build` + polling
+   `GET /api/dh-builder/build/status/{job_id}`, served at `/dh-preview` once
+   built — see "DataHarmonizer preview bundle" below), or hand the updated
+   schema to a larger application, such as
    `../mimicc-ena-submission-assistant`, for rebuilding embedded
    DataHarmonizer templates there instead.
 
@@ -41,7 +42,8 @@ assistant.
 
 - `docs/` - product, integration, and schema coverage notes
 - `scripts/` - repository maintenance scripts
-- `src/dataharmonizer_template_builder/` - FastAPI backend and integration code
+- `src/dataharmonizer_template_builder/` - Django backend (`views.py`) and integration code
+- `src/config/` - Django settings/urls/wsgi
 - `../linkml-lib/src/linkml_lib/` - shared LinkML conversion, diagnostics, and
   DataHarmonizer schema compilation utilities
 - `tests/` - backend test suite
@@ -66,16 +68,17 @@ python scripts/check_repo.py
 
 Run the backend and frontend as two local dev servers.
 
-Install the shared sibling library first:
+Install the app extra (pulls in `linkml-lib` as a pinned git dependency — no
+sibling checkout required):
 
 ```bash
-python -m pip install -e ../linkml-lib
+python -m pip install -e ".[app]"
 ```
 
 Backend:
 
 ```bash
-PYTHONPATH=src:../linkml-lib/src uvicorn dataharmonizer_template_builder.api:app --host 127.0.0.1 --port 8765
+python manage.py runserver 127.0.0.1:8765
 ```
 
 Frontend:
@@ -108,11 +111,10 @@ http://127.0.0.1:8765/
 Prerequisites:
 
 - Docker with BuildKit / Compose support for `additional_contexts`
-- sibling DataHarmonizer checkout at `../DataHarmonizer`
-- sibling shared library checkout at `../linkml-lib`
-- sibling [dh-builder](https://github.com/timrozday-mgnify/dh-builder)
-  checkout at `../dh-builder`, needed for the on-demand preview-bundle
-  rebuild (see "DataHarmonizer preview bundle" below)
+
+No sibling checkouts are required — `DataHarmonizer`, `linkml-lib`, and
+`dh-builder` are all pulled at pinned versions during `docker compose build`
+(see "Pinned dependency versions" below).
 
 Run:
 
@@ -120,10 +122,28 @@ Run:
 docker compose up --build
 ```
 
-The Compose build passes `../DataHarmonizer`, `../linkml-lib`, and
-`../dh-builder` into the image as additional build contexts. The app installs
-`linkml-lib` and `dh_builder_lib` into the Python runtime image and uses
-DataHarmonizer as the frontend library source.
+The Compose build pulls the pinned `DataHarmonizer` tag as an additional
+build context (frontend library source, also baked into the runtime image
+for `dh_compile.py`'s subprocess fallback). `linkml-lib` and `dh-builder-lib`
+are pinned pip dependencies (`requirements.txt`), installed straight into the
+Python runtime image — no local build context needed for them.
+
+### Testing against Docker Compose
+
+`frontend/tests/app.spec.ts` (the Playwright suite used by `npm run
+test:browser`) can run against the real built container instead of the
+`npm run dev` + `python manage.py runserver` pair `playwright.config.ts` uses
+by default. Set `COMPOSE_TEST_URL` and Playwright skips spawning either dev
+process, pointing straight at the already-running compose stack:
+
+```bash
+make test-compose
+```
+
+This builds the image, brings up the stack, runs the full suite against it,
+and tears the stack down afterward (`scripts/test_compose.sh`) — slower than
+the dev-server run (image build included), but it's the one place that
+exercises the actual container artifact `docker-compose.yml` produces.
 
 ## DataHarmonizer preview bundle
 
@@ -137,9 +157,13 @@ exact same [dh-builder](https://github.com/timrozday-mgnify/dh-builder) image
 the identical image with `TEMPLATE=mimicc`):
 
 ```text
-POST /api/dh-builder/build              {"session_id": "..."}  -> {"job_id": "..."}
-GET  /api/dh-builder/build/stream/{job_id}   (SSE: log lines, then {"done": true, "result": {...}})
+POST /api/dh-builder/build                       {"session_id": "..."}  -> {"job_id": "..."}
+GET  /api/dh-builder/build/status/{job_id}?since=N   (poll until "done": true)
+                                                  -> {"lines": [...], "next": N, "done": bool, "result": {...}|null}
 ```
+
+Poll `status` repeatedly, passing the last response's `next` back as `since`
+to fetch only the new lines, until `done` is `true`.
 
 Once a rebuild completes, the bundle is served at `/dh-preview/`. This
 requires the Docker-in-Docker mounts in `docker-compose.yml` (the app
@@ -148,9 +172,9 @@ the `dh-builder` image built once (shared with `mimicc-ena-submission-assistant`
 if you also run that app — no need to build it twice):
 
 ```bash
-git clone https://github.com/timrozday-mgnify/dh-builder.git ../dh-builder
+git clone --branch v0.1.0 https://github.com/timrozday-mgnify/dh-builder.git ../dh-builder
 docker build -f ../dh-builder/Dockerfile \
-  --build-context dataharmonizer-src=../DataHarmonizer \
+  --build-context dataharmonizer-src=https://github.com/timrozday-mgnify/DataHarmonizer.git#v2.1.0-mimicc \
   -t dh-builder ../dh-builder
 ```
 
@@ -162,6 +186,19 @@ docker compose down
 
 If it is running in the foreground, `Ctrl-C` also stops the running process;
 then run `docker compose down` to remove the container and network.
+
+### Pinned dependency versions
+
+All sibling-repo code is pulled at a fixed git tag, never a local checkout or
+`main`/`master`. The pins live in two places:
+
+- **`requirements.txt`** (and `pyproject.toml`'s `app` extra) —
+  `linkml-lib` and `dh-builder-lib` as
+  `name @ git+https://github.com/timrozday-mgnify/<repo>.git@<tag>` lines.
+- **`docker-compose.yml`** — the `app` service's
+  `build.additional_contexts.dataharmonizer-src` git URL
+  (`...git#<tag>`); the manual `dh-builder` image build command above pins
+  the same way.
 
 ## Host Integration
 

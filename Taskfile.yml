@@ -1,0 +1,44 @@
+version: "3"
+
+tasks:
+  test:
+    desc: Run the pytest suite (no Docker)
+    cmds:
+      - .venv/bin/python -m pytest {{.CLI_ARGS}}
+
+  test:compose:
+    desc: >
+      Run Playwright against the real docker compose stack (builds the image;
+      takes minutes). See README "Testing against Docker Compose".
+    cmds:
+      - ./scripts/test_compose.sh {{.CLI_ARGS}}
+
+  up:
+    desc: Start the stack, building the image as needed
+    cmds:
+      - docker compose up --build {{.CLI_ARGS}}
+
+  down:
+    desc: Stop the stack
+    cmds:
+      - docker compose down {{.CLI_ARGS}}
+
+  build:
+    desc: Build the image without starting the container
+    cmds:
+      - docker compose build {{.CLI_ARGS}}
+
+  logs:
+    desc: Tail logs for the app container
+    cmds:
+      - docker compose logs -f {{.CLI_ARGS}}
+
+  rebuild:
+    desc: >
+      Deep-rebuild after editing ../DataHarmonizer. Plain `task build`/`up
+      --build` is NOT enough: Docker's layer cache can skip the
+      `COPY --from=dataharmonizer-src` step even when the source content
+      changed. Forces a --no-cache image build.
+    cmds:
+      - docker compose build --no-cache app
+      - docker compose up -d app {{.CLI_ARGS}}

@@ -2,6 +2,13 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app
 COPY --from=dataharmonizer-src . /DataHarmonizer
+# DataHarmonizer's own node_modules aren't part of its git source (gitignored),
+# so they have to be installed here rather than assumed present — this only
+# worked before by accident, when dataharmonizer-src was a local checkout that
+# happened to already have node_modules from a manual `yarn install`. Matches
+# dh-builder's dh_build_steps.sh, which installs DataHarmonizer's deps the
+# same way.
+RUN cd /DataHarmonizer && yarn install --frozen-lockfile
 COPY package.json ./
 RUN npm install
 COPY index.html tsconfig.json vite.config.ts playwright.config.ts ./
@@ -15,15 +22,22 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=linkml-lib . /linkml-lib
-COPY --from=dh-builder-lib . /dh-builder-lib
+# DataHarmonizer source, also needed at runtime (not just by the frontend
+# build above) for dh_compile.py's subprocess fallback (DATAHARMONIZER_DIR).
+COPY --from=dataharmonizer-src . /DataHarmonizer
+# linkml-lib and dh-builder-lib are pinned pip dependencies (see
+# requirements.txt) — no local build context needed for them.
 COPY requirements.txt .
-RUN pip install --no-cache-dir /linkml-lib /dh-builder-lib && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
-COPY pyproject.toml README.md ./
+COPY manage.py pyproject.toml README.md ./
 COPY --from=frontend-builder /app/frontend/dist frontend/dist
 
 ENV PYTHONPATH=/app/src
 EXPOSE 8765
-CMD ["uvicorn", "dataharmonizer_template_builder.api:app", "--host", "0.0.0.0", "--port", "8765"]
+# --workers 1: session state (sessions.py's SessionStore) and build job
+# status (views.py's _jobs) are plain in-process dicts, not shared across
+# workers — same single-process assumption the previous uvicorn deployment
+# already had.
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8765", "--workers", "1"]

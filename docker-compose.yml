@@ -2,13 +2,11 @@ services:
   app:
     build:
       context: .
+      # Pinned tag, never a local checkout -- see README "Pinned dependency
+      # versions". linkml-lib and dh-builder-lib are pinned pip dependencies
+      # in requirements.txt instead, no build context needed for them.
       additional_contexts:
-        dataharmonizer-src: ../DataHarmonizer
-        linkml-lib: ../linkml-lib
-        # dh-builder checkout (https://github.com/timrozday-mgnify/dh-builder),
-        # source of dh_builder_lib (pip-installed below) and the Dockerfile
-        # for the on-demand DH-bundle rebuild image.
-        dh-builder-lib: ../dh-builder
+        dataharmonizer-src: https://github.com/timrozday-mgnify/DataHarmonizer.git#v2.1.0-mimicc
     environment:
       DATAHARMONIZER_DIR: /DataHarmonizer
       # Named Docker volumes shared with the dh-builder sibling container
@@ -21,7 +19,6 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      - ../DataHarmonizer:/DataHarmonizer:ro
       # Docker-in-Docker access so the app can spawn the dh-builder sibling
       # container for on-demand bundle rebuilds (POST /api/dh-builder/build).
       # Grants the app container Docker-daemon (effectively root-on-host)
