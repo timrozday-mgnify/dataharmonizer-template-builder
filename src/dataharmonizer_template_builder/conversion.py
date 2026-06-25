@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from dataharmonizer_template_builder import tables
 from dataharmonizer_template_builder.models import Diagnostic, TableRows
-from linkml_lib import edit_tables as tables
 from linkml_lib import io as linkml_io
 from linkml_lib.diagnostics import Diagnostic as LinkMLDiagnostic
 
