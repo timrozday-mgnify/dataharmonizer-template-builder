@@ -146,6 +146,5 @@ Nested annotation keys observed:
 - Preserve regex patterns exactly.
 - Preserve slot order through `class.slots` and `slot_usage.rank`.
 - Preserve DataHarmonizer grouping through `slot_usage.slot_group`.
-- Preserve ENA mapping annotations, especially `annotations.id` and
-  `annotations.source`.
+- Preserve ENA mapping annotations, especially `annotations.id`.
 - Preserve large enum menus without forcing manual YAML editing.

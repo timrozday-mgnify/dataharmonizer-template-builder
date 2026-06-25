@@ -7,7 +7,7 @@ from tests.test_tables import SAMPLE_SCHEMA
 def test_slot_annotation_columns_sync_to_annotation_rows() -> None:
     tables = schema_to_tables(linkml_io.load_yaml_text(SAMPLE_SCHEMA))
     slot = next(row for row in tables["slots"] if row["slot"] == "sample_id")
-    slot["annotation_source"] = "updated"
+    slot["annotation_id"] = "updated"
 
     synced, diagnostics = sync_tables(tables, source_table="slots")
 
@@ -15,9 +15,40 @@ def test_slot_annotation_columns_sync_to_annotation_rows() -> None:
     assert {
         "element_type": "slot",
         "element": "sample_id",
-        "key": "source",
+        "key": "id",
         "value": "updated",
     } in synced["annotations"]
+
+
+def test_source_annotation_row_is_not_a_slot_shortcut_column() -> None:
+    tables = schema_to_tables(
+        linkml_io.load_yaml_text(
+            """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    annotations:
+      source: legacy
+"""
+        )
+    )
+    row = next(
+        row
+        for row in tables["annotations"]
+        if row["element_type"] == "slot" and row["element"] == "sample_id" and row["key"] == "source"
+    )
+    row["value"] = "updated"
+
+    synced, diagnostics = sync_tables(tables, source_table="annotations")
+    slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
+
+    assert diagnostics == []
+    assert "annotation_source" not in slot
 
 
 def test_annotation_rows_sync_to_slot_annotation_columns() -> None:

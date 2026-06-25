@@ -38,7 +38,7 @@ slots:
     range: string
     annotations:
       id: sample_id
-      source: test
+      mimicc_default_unit: mL
 `;
 
 async function importDemoSchema(page: Page) {
@@ -158,17 +158,17 @@ test('syncs annotation table edits into generated slot annotations', async ({ pa
   await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
   await expect(page.locator('.schema-name')).toHaveText('annotation_demo');
   await page.getByRole('button', { name: 'annotations' }).click();
-  const sourceCell = page
+  const unitCell = page
     .locator('.table-panel .ht_master .htCore tbody tr')
-    .locator('td', { hasText: 'test' })
+    .locator('td', { hasText: 'mL' })
     .filter({ visible: true })
     .first();
-  await replaceHotCell(sourceCell, 'annotation-source-updated');
+  await replaceHotCell(unitCell, 'uL');
 
   await page.getByRole('button', { name: 'Generate' }).click();
   await page.getByRole('button', { name: 'Export YAML' }).first().click();
 
-  await expect(page.locator('.generated-output')).toContainText('annotation-source-updated');
+  await expect(page.locator('.generated-output')).toContainText('uL');
 });
 
 test('keeps focus while typing in editable grid cells', async ({ page }) => {

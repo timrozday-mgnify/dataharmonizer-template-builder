@@ -2,7 +2,6 @@ import type { Row, Tables } from './types';
 
 const SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
   annotation_id: 'id',
-  annotation_source: 'source',
   annotation_mimicc_default_unit: 'mimicc_default_unit'
 };
 

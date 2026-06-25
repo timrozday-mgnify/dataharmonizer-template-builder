@@ -19,7 +19,6 @@ ANNOTATION_TABLE = "annotations"
 
 SLOT_ANNOTATION_COLUMNS = {
     "annotation_id": "id",
-    "annotation_source": "source",
     "annotation_mimicc_default_unit": "mimicc_default_unit",
 }
 

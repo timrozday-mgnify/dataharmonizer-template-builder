@@ -33,7 +33,7 @@ slots:
     required: true
     annotations:
       id: sample_id
-      source: test
+      mimicc_default_unit: mL
   status:
     title: Status
     range: StatusMenu
@@ -91,7 +91,7 @@ def test_tables_to_schema_preserves_slot_usage_and_enums() -> None:
     assert diagnostics == []
     assert rebuilt["classes"]["Test"]["slots"] == ["sample_id", "status"]
     assert rebuilt["classes"]["Test"]["slot_usage"]["status"]["slot_group"] == "Status"
-    assert rebuilt["slots"]["sample_id"]["annotations"]["source"] == "test"
+    assert rebuilt["slots"]["sample_id"]["annotations"]["mimicc_default_unit"] == "mL"
     assert "ready" in rebuilt["enums"]["StatusMenu"]["permissible_values"]
 
 
@@ -151,4 +151,3 @@ def test_conversion_service_generates_yaml() -> None:
 
     assert "StatusMenu" in yaml_text
     assert schema["name"] == "test"
-
