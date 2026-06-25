@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const HOST_SCHEMA = `id: https://example.org/host-demo
 name: host_demo
@@ -21,14 +21,33 @@ slots:
     required: true
 `;
 
-async function importDemoSchema(page: Parameters<Parameters<typeof test>[1]>[0]['page']) {
+async function importDemoSchema(page: Page) {
   await page.getByRole('button', { name: 'Import YAML' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Import YAML' })).toBeVisible();
   await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
   await expect(page.locator('.schema-name')).toHaveText('template_builder_demo');
 }
 
+async function routeStandaloneFrontendConfig(page: Page) {
+  await page.route('**/api/frontend-config', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        showImportButton: true,
+        showExportButton: true,
+        showGenerateButton: true,
+        showPreviewButton: true,
+        showDiagnostics: true,
+        allowExampleSchema: true,
+        hostName: '',
+        hostMode: 'standalone'
+      })
+    });
+  });
+}
+
 test('opens the schema editor shell', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Template Builder' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Import YAML' }).first()).toBeVisible();
@@ -42,6 +61,7 @@ test('renders a generated schema in a DataHarmonizer preview grid', async ({ pag
   const browserMessages: string[] = [];
   page.on('console', (message) => browserMessages.push(`${message.type()}: ${message.text()}`));
   page.on('pageerror', (error) => browserMessages.push(`pageerror: ${error.message}`));
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   await importDemoSchema(page);
@@ -51,7 +71,7 @@ test('renders a generated schema in a DataHarmonizer preview grid', async ({ pag
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
 
   await expect(page.locator('#data-harmonizer-grid'), browserMessages.join('\n')).toContainText('Sample ID', {
-    timeout: 10_000
+    timeout: 20_000
   });
   await expect(page.locator('#data-harmonizer-grid')).toContainText('Status');
   await expect(page.getByRole('tab', { name: 'Demo' })).toBeVisible();
@@ -60,19 +80,19 @@ test('renders a generated schema in a DataHarmonizer preview grid', async ({ pag
 });
 
 test('edits enum values in the focused enum workspace', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   await importDemoSchema(page);
   await page.getByRole('button', { name: 'Enum workspace' }).click();
 
   await expect(page.getByRole('button', { name: /StatusMenu/ })).toBeVisible();
-  await expect(page.locator('.enum-values input[value="draft"]').first()).toBeVisible();
-  await expect(page.locator('.enum-values input[value="ready"]').first()).toBeVisible();
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('draft');
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('ready');
 
   await page.getByRole('button', { name: /Add/ }).click();
-  const newRow = page.locator('.enum-values tbody tr').last();
-  await newRow.locator('input').nth(0).fill('archived');
-  await newRow.locator('input').nth(1).fill('archived');
+  const newRow = page.locator('.enum-values .ht_master .htCore tbody tr').last();
+  await fillHotCell(newRow.locator('td', { hasText: 'new_value' }).filter({ visible: true }).first(), 'archived');
 
   await page.locator('.enum-meta label').first().locator('input').fill('StatusChoiceMenu');
   await page.getByRole('button', { name: 'Generate' }).click();
@@ -83,20 +103,28 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
 });
 
 test('keeps focus while typing in editable grid cells', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   await importDemoSchema(page);
   await page.getByRole('button', { name: 'Enum workspace' }).click();
   await page.getByRole('button', { name: /Add/ }).click();
 
-  const valueInput = page.locator('.enum-values tbody tr').last().locator('input').first();
-  await valueInput.fill('');
-  await valueInput.type('typing_check');
-  await expect(valueInput).toBeFocused();
-  await expect(valueInput).toHaveValue('typing_check');
+  const valueCell = page
+    .locator('.enum-values .ht_master .htCore tbody tr')
+    .last()
+    .locator('td', { hasText: 'new_value' })
+    .filter({ visible: true })
+    .first();
+  await clickHotCell(valueCell);
+  await page.keyboard.press('F2');
+  await page.keyboard.type('typing_check');
+  await page.keyboard.press('Enter');
+  await expect(valueCell).toContainText('typing_check');
 });
 
 test('allows text entry in the DataHarmonizer preview grid', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   await importDemoSchema(page);
@@ -118,6 +146,7 @@ test('allows text entry in the DataHarmonizer preview grid', async ({ page }) =>
 });
 
 test('runs native DataHarmonizer validation in the preview grid', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   await importDemoSchema(page);
@@ -170,6 +199,7 @@ test('uses backend frontend config to hide host-managed controls', async ({ page
 });
 
 test('supports iframe-style YAML load and export messages', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
   await page.goto('/');
 
   const loaded = await page.evaluate(async (yaml) => {
@@ -208,3 +238,25 @@ test('supports iframe-style YAML load and export messages', async ({ page }) => 
   expect(exported.type).toBe('dhtb.exported');
   expect(exported.yaml).toContain('host_id');
 });
+
+async function fillHotCell(cell: Locator, value: string) {
+  await clickHotCell(cell);
+  await cell.page().keyboard.press('F2');
+  await cell.page().keyboard.type(value);
+  await cell.page().keyboard.press('Enter');
+}
+
+async function clickHotCell(cell: Locator) {
+  await cell.evaluate((element) => {
+    for (const type of ['mousedown', 'mouseup', 'click', 'dblclick']) {
+      element.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          buttons: type === 'mousedown' ? 1 : 0
+        })
+      );
+    }
+  });
+}

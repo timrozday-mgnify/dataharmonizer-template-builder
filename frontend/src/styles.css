@@ -270,6 +270,60 @@ textarea {
   flex: 1;
 }
 
+.hot-grid-wrap {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+.hot-grid-wrap .ht-theme-main {
+  --ht-background-color: var(--bg);
+  --ht-foreground-color: var(--fg);
+  --ht-border-color: var(--line);
+  --ht-wrapper-border-color: var(--line);
+  --ht-cell-horizontal-border-color: var(--line);
+  --ht-cell-vertical-border-color: var(--line);
+  --ht-cell-selection-background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  --ht-cell-selection-border-color: var(--accent);
+  --ht-cell-autofill-fill: var(--accent);
+  --ht-header-background-color: var(--btn2-bg);
+  --ht-header-foreground-color: var(--muted);
+  --ht-header-border-color: var(--line);
+  --ht-menu-background-color: var(--panel);
+  --ht-menu-foreground-color: var(--fg);
+  --ht-menu-border-color: var(--line);
+  color: var(--fg);
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 12px;
+}
+
+.hot-grid-wrap .handsontable td {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.hot-grid-wrap .handsontable th {
+  text-transform: capitalize;
+}
+
+.hot-grid-wrap .handsontable td.selected-row {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+}
+
+.range-hot-cell {
+  position: relative;
+}
+
+.range-hot-value {
+  display: block;
+  overflow: hidden;
+  padding-right: 120px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 table {
   width: max-content;
   min-width: 100%;
@@ -435,7 +489,7 @@ td input:focus {
 
 .enum-workspace {
   display: grid;
-  grid-template-columns: minmax(220px, 0.34fr) minmax(420px, 1fr);
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }

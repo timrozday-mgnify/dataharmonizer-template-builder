@@ -10,12 +10,14 @@
     "test:browser": "playwright test"
   },
   "dependencies": {
+    "@handsontable/react-wrapper": "^17.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "data-harmonizer": "file:../DataHarmonizer",
+    "handsontable": "^17.1.0",
     "lucide-react": "^0.468.0",
-    "vite": "^6.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

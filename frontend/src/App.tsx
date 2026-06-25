@@ -12,10 +12,12 @@ import {
   Table2,
   Trash2
 } from 'lucide-react';
+import { textRenderer } from 'handsontable/renderers/textRenderer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { createIntegrationSession, generateSchema, getFrontendConfig } from './api';
 import { loadDataHarmonizerLibrary } from './dataHarmonizerLibrary';
+import { DataGrid } from './DataGrid';
 import type { AppContext } from 'data-harmonizer';
 import type { Diagnostic, FrontendConfig, GenerateResponse, ImportResponse, Row, Tables } from './types';
 
@@ -342,6 +344,7 @@ export function App() {
             />
           ) : activeTable && tables[activeTable] ? (
             <EditableTable
+              tableName={activeTable}
               rows={tables[activeTable]}
               onChange={(rows) => updateRows(activeTable, rows)}
               enumNames={enumNames}
@@ -418,11 +421,13 @@ export function App() {
 }
 
 function EditableTable({
+  tableName,
   rows,
   onChange,
   enumNames = new Set(),
   onOpenEnum
 }: {
+  tableName: string;
   rows: Row[];
   onChange: (rows: Row[]) => void;
   enumNames?: Set<string>;
@@ -433,11 +438,6 @@ function EditableTable({
     rows.forEach((row) => Object.keys(row).forEach((key) => names.add(key)));
     return [...names];
   }, [rows]);
-
-  function updateCell(rowIndex: number, column: string, value: string) {
-    const nextRows = rows.map((row, index) => (index === rowIndex ? { ...row, [column]: value } : row));
-    onChange(nextRows);
-  }
 
   function addRow() {
     onChange([...rows, Object.fromEntries(columns.map((column) => [column, '']))]);
@@ -455,41 +455,17 @@ function EditableTable({
 
   return (
     <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column}>{column.replaceAll('_', ' ')}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              {columns.map((column) => (
-                <td key={column}>
-                  {column === 'range' && enumNames.has(cellText(row[column])) && onOpenEnum ? (
-                    <div className="range-cell">
-                      <input
-                        value={String(row[column] ?? '')}
-                        onChange={(event) => updateCell(rowIndex, column, event.target.value)}
-                      />
-                      <button className="enum-cell-link" onClick={() => onOpenEnum(cellText(row[column]))}>
-                        {cellText(row[column])}
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      value={String(row[column] ?? '')}
-                      onChange={(event) => updateCell(rowIndex, column, event.target.value)}
-                    />
-                  )}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataGrid
+        rows={rows}
+        onChange={onChange}
+        columns={columns}
+        pinnedColumns={tableName === 'slots' ? ['slot', 'rank'] : undefined}
+        cellMeta={(_rowIndex, column) =>
+          column === 'range' && onOpenEnum
+            ? { renderer: enumRangeRenderer(enumNames, onOpenEnum) }
+            : undefined
+        }
+      />
       <button className="compact" onClick={addRow}>
         Add row
       </button>
@@ -517,10 +493,22 @@ function EnumWorkspace({
     ? selectedEnum
     : cellText(enumRows[0]?.enum);
   const enumRow = enumRows.find((row) => cellText(row.enum) === effectiveEnum);
-  const enumValueRows = valueRows
-    .map((row, sourceIndex) => ({ row, sourceIndex }))
-    .filter(({ row }) => cellText(row.enum) === effectiveEnum);
-  const visibleValueRows = enumValueRows.filter(({ row }) => enumRowMatches(row, search));
+  const enumValueRows = useMemo(
+    () =>
+      valueRows
+        .map((row, sourceIndex) => ({ row, sourceIndex }))
+        .filter(({ row }) => cellText(row.enum) === effectiveEnum),
+    [effectiveEnum, valueRows]
+  );
+  const visibleValueRows = useMemo(
+    () => enumValueRows.filter(({ row }) => enumRowMatches(row, search)),
+    [enumValueRows, search]
+  );
+  const visibleValueGridRows = useMemo(() => visibleValueRows.map(({ row }) => row), [visibleValueRows]);
+  const selectedVisibleRowIndex = useMemo(
+    () => visibleValueRows.findIndex(({ row }) => cellText(row.permissible_value) === selectedValue),
+    [selectedValue, visibleValueRows]
+  );
   const referenceCounts = enumReferenceCounts(tables);
   const warnings = enumWarnings(tables);
 
@@ -601,15 +589,17 @@ function EnumWorkspace({
     });
   }
 
-  function updateValue(sourceIndex: number, column: string, value: string) {
+  function updateValues(nextVisibleRows: Row[]) {
     patchTables({
       ...tables,
-      permissible_values: valueRows.map((row, index) =>
-        index === sourceIndex ? { ...row, [column]: value } : row
-      )
+      permissible_values: valueRows.map((row, index) => {
+        const visibleIndex = visibleValueRows.findIndex(({ sourceIndex }) => sourceIndex === index);
+        return visibleIndex === -1 ? row : { ...row, ...nextVisibleRows[visibleIndex] };
+      })
     });
-    if (column === 'permissible_value') {
-      setSelectedValue(value);
+    const selectedIndex = visibleValueRows.findIndex(({ row }) => cellText(row.permissible_value) === selectedValue);
+    if (selectedIndex !== -1) {
+      setSelectedValue(cellText(nextVisibleRows[selectedIndex]?.permissible_value));
     }
   }
 
@@ -674,40 +664,53 @@ function EnumWorkspace({
           <button className="compact danger" onClick={deleteValue} disabled={!selectedValue}><Trash2 size={15} /> Delete</button>
         </div>
         <div className="enum-values table-wrap">
-          <table>
-            <thead>
-              <tr>
-                {['permissible_value', 'text', 'description', 'meaning', 'comments'].map((column) => (
-                  <th key={column}>{column.replaceAll('_', ' ')}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleValueRows.map(({ row, sourceIndex }) => {
-                const valueKey = cellText(row.permissible_value);
-                return (
-                  <tr
-                    key={sourceIndex}
-                    className={valueKey === selectedValue ? 'selected-row' : ''}
-                    onClick={() => setSelectedValue(valueKey)}
-                  >
-                    {['permissible_value', 'text', 'description', 'meaning', 'comments'].map((column) => (
-                      <td key={column}>
-                        <input
-                          value={cellText(row[column])}
-                          onChange={(event) => updateValue(sourceIndex, column, event.target.value)}
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DataGrid
+            columns={['permissible_value', 'text', 'description', 'meaning', 'comments']}
+            enableRowOps={false}
+            rows={visibleValueGridRows}
+            onChange={updateValues}
+            onRowSelect={(rowIndex) => {
+              setSelectedValue(rowIndex === null ? '' : cellText(visibleValueRows[rowIndex]?.row.permissible_value));
+            }}
+            selectedRowIndex={selectedVisibleRowIndex}
+          />
         </div>
       </section>
     </div>
   );
+}
+
+function enumRangeRenderer(enumNames: Set<string>, onOpenEnum: (enumName: string) => void) {
+  return (
+    instance: Parameters<typeof textRenderer>[0],
+    td: HTMLTableCellElement,
+    row: number,
+    column: number,
+    prop: string | number,
+    value: unknown,
+    cellProperties: Parameters<typeof textRenderer>[6]
+  ) => {
+    const enumName = cellText(value);
+    if (!enumNames.has(enumName)) {
+      textRenderer(instance, td, row, column, prop, value, cellProperties);
+      return;
+    }
+    td.replaceChildren();
+    td.classList.add('range-hot-cell');
+    const label = document.createElement('span');
+    label.className = 'range-hot-value';
+    label.textContent = enumName;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'enum-cell-link';
+    button.textContent = enumName;
+    button.addEventListener('mousedown', (event) => event.preventDefault());
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onOpenEnum(enumName);
+    });
+    td.append(label, button);
+  };
 }
 
 function Diagnostics({ diagnostics }: { diagnostics: Diagnostic[] }) {
