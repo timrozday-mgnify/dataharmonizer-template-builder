@@ -19,7 +19,7 @@ from django.http import (
 from django.views.static import serve as static_serve
 from pydantic import BaseModel, ValidationError
 
-from dataharmonizer_template_builder import dh_builder_runner, dh_compile
+from dataharmonizer_template_builder import dh_builder_runner, dh_compile, table_sync
 from dataharmonizer_template_builder.conversion import ConversionService
 from dataharmonizer_template_builder.models import SchemaSession, TableRows
 from dataharmonizer_template_builder.sessions import store
@@ -124,6 +124,8 @@ def _create_schema_session(req: ImportRequest) -> JsonResponse:
         schema, editable_tables, diagnostics = converter.import_yaml(req.yaml)
     except ValueError as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
+    editable_tables, sync_diagnostics = table_sync.sync_tables(editable_tables)
+    diagnostics.extend(sync_diagnostics)
     schema_name = req.name or schema.get("name") or "schema"
     session = store.create(
         source_yaml=req.yaml,
@@ -179,7 +181,9 @@ def _update_tables(request: HttpRequest, session_id: str) -> JsonResponse:
     except (ValidationError, json.JSONDecodeError) as exc:
         return _bad_request(exc)
     try:
-        session = store.update_tables(session_id, req.tables)
+        tables, diagnostics = table_sync.sync_tables(req.tables)
+        session = store.update_tables(session_id, tables)
+        session.diagnostics = diagnostics
     except KeyError:
         return JsonResponse({"detail": "Unknown session."}, status=404)
     return JsonResponse(session.to_dict())
@@ -205,7 +209,9 @@ def _generate_session_yaml(session_id: str, editable_tables: TableRows | None) -
     if err:
         return None, err
     editable_tables = editable_tables if editable_tables is not None else session.tables
+    editable_tables, sync_diagnostics = table_sync.sync_tables(editable_tables)
     yaml_text, schema, diagnostics = converter.generate_yaml(editable_tables)
+    diagnostics = [*sync_diagnostics, *diagnostics]
     diagnostics.extend(validation.validate_schema(schema))
     schema_json, compile_diagnostics = dh_compile.compile_schema_json(yaml_text)
     diagnostics.extend(compile_diagnostics)

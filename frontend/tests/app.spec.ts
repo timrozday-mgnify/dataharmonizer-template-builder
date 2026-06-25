@@ -21,6 +21,26 @@ slots:
     required: true
 `;
 
+const ANNOTATED_SCHEMA = `id: https://example.org/annotation-demo
+name: annotation_demo
+imports:
+- linkml:types
+prefixes:
+  linkml: https://w3id.org/linkml/
+default_range: string
+classes:
+  Demo:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    title: Sample ID
+    range: string
+    annotations:
+      id: sample_id
+      source: test
+`;
+
 async function importDemoSchema(page: Page) {
   await page.getByRole('button', { name: 'Import YAML' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Import YAML' })).toBeVisible();
@@ -53,6 +73,9 @@ test('opens the schema editor shell', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Import YAML' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Export YAML' }).first()).toBeVisible();
   await importDemoSchema(page);
+  await expectHotGridVisible(page.locator('.table-panel .hot-grid-wrap').first());
+  await expectMeasuredColumnWidths(page);
+  await expectRowHeightsStableDuringHorizontalScroll(page);
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Validate' })).toHaveCount(0);
 });
@@ -77,6 +100,8 @@ test('renders a generated schema in a DataHarmonizer preview grid', async ({ pag
   await expect(page.getByRole('tab', { name: 'Demo' })).toBeVisible();
   await expect(page.locator('#data-harmonizer-toolbar #validate-btn')).toBeEnabled();
   await expect(page.locator('#data-harmonizer-footer #add-row')).toBeEnabled();
+  await expectPreviewCellsDoNotWrap(page);
+  await expectPreviewRowHeightsStableDuringHorizontalScroll(page);
 });
 
 test('edits enum values in the focused enum workspace', async ({ page }) => {
@@ -87,6 +112,7 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
   await page.getByRole('button', { name: 'Enum workspace' }).click();
 
   await expect(page.getByRole('button', { name: /StatusMenu/ })).toBeVisible();
+  await expectHotGridVisible(page.locator('.enum-values .hot-grid-wrap'));
   await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('draft');
   await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('ready');
 
@@ -100,6 +126,49 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
 
   await expect(page.locator('.generated-output')).toContainText('StatusChoiceMenu');
   await expect(page.locator('.generated-output')).toContainText('archived');
+});
+
+test('syncs raw enum table renames to linked tables', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'enums' }).click();
+  const enumCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'StatusMenu' })
+    .filter({ visible: true })
+    .first();
+  await replaceHotCell(enumCell, 'StatusRawMenu');
+
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await page.getByRole('button', { name: 'Export YAML' }).first().click();
+
+  await expect(page.locator('.generated-output')).toContainText('StatusRawMenu');
+  await expect(page.locator('.generated-output')).not.toContainText('StatusMenu');
+});
+
+test('syncs annotation table edits into generated slot annotations', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Import YAML' }).first().click();
+  await page.locator('.popup-textarea').fill(ANNOTATED_SCHEMA);
+  await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
+  await expect(page.locator('.schema-name')).toHaveText('annotation_demo');
+  await page.getByRole('button', { name: 'annotations' }).click();
+  const sourceCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .locator('td', { hasText: 'test' })
+    .filter({ visible: true })
+    .first();
+  await replaceHotCell(sourceCell, 'annotation-source-updated');
+
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await page.getByRole('button', { name: 'Export YAML' }).first().click();
+
+  await expect(page.locator('.generated-output')).toContainText('annotation-source-updated');
 });
 
 test('keeps focus while typing in editable grid cells', async ({ page }) => {
@@ -121,6 +190,43 @@ test('keeps focus while typing in editable grid cells', async ({ page }) => {
   await page.keyboard.type('typing_check');
   await page.keyboard.press('Enter');
   await expect(valueCell).toContainText('typing_check');
+});
+
+test('keeps the Handsontable context menu open after right click', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  const firstCell = page
+    .locator('.table-panel .ht_clone_inline_start .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'sample_id' });
+  await firstCell.click();
+  await firstCell.click({ button: 'right' });
+
+  const contextMenu = page.locator('.htContextMenu').filter({ hasText: 'Insert row above' });
+  await expect(contextMenu).toBeVisible();
+  await page.waitForTimeout(250);
+  await expect(contextMenu).toBeVisible();
+});
+
+test('keeps the fill handle active while dragging cells', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'Enum workspace' }).click();
+
+  const valueCells = page.locator('.enum-values .ht_master .htCore tbody tr').locator('td').filter({ visible: true });
+  const sourceCell = valueCells.filter({ hasText: 'draft' }).first();
+  const targetCell = valueCells.filter({ hasText: 'ready' }).first();
+  await sourceCell.click();
+
+  const fillHandle = page.locator('.corner').filter({ visible: true }).first();
+  await expect(fillHandle).toBeVisible();
+  await dragLocatorTowardCell(fillHandle, targetCell, page);
+  await expect(page.locator('.wtBorder.fill').filter({ visible: true }).first()).toBeVisible();
+  await page.mouse.up();
 });
 
 test('allows text entry in the DataHarmonizer preview grid', async ({ page }) => {
@@ -246,6 +352,75 @@ async function fillHotCell(cell: Locator, value: string) {
   await cell.page().keyboard.press('Enter');
 }
 
+async function replaceHotCell(cell: Locator, value: string) {
+  await clickHotCell(cell);
+  await cell.page().keyboard.press('F2');
+  await cell.page().keyboard.press('ControlOrMeta+A');
+  await cell.page().keyboard.type(value);
+  await cell.page().keyboard.press('Enter');
+}
+
+async function expectHotGridVisible(grid: Locator) {
+  await expect(grid).toBeVisible();
+  const box = await grid.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(100);
+  expect(box?.height ?? 0).toBeGreaterThan(100);
+}
+
+async function expectMeasuredColumnWidths(page: Page) {
+  const widths = await page.locator('.table-panel .ht_master .htCore colgroup col').evaluateAll((columns) =>
+    columns.slice(1, 6).map((column) => Number.parseFloat((column as HTMLTableColElement).style.width))
+  );
+  expect(widths.length).toBeGreaterThan(0);
+  for (const width of widths) {
+    expect(width).toBeGreaterThanOrEqual(90);
+    expect(width).toBeLessThanOrEqual(420);
+  }
+  expect(new Set(widths).size).toBeGreaterThan(1);
+}
+
+async function expectRowHeightsStableDuringHorizontalScroll(page: Page) {
+  const holder = page.locator('.table-panel .ht_master .wtHolder').first();
+  const before = await visibleRowHeights(page);
+  await holder.evaluate((element) => {
+    element.scrollLeft = 900;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  await page.waitForTimeout(100);
+  const after = await visibleRowHeights(page);
+  expect(after).toEqual(before);
+}
+
+async function visibleRowHeights(page: Page) {
+  return page.locator('.table-panel .ht_master .htCore tbody tr').evaluateAll((rows) =>
+    rows.map((row) => Math.round(row.getBoundingClientRect().height))
+  );
+}
+
+async function expectPreviewCellsDoNotWrap(page: Page) {
+  const firstCell = page.locator('#data-harmonizer-grid .ht_master .htCore tbody td').first();
+  await expect(firstCell).toHaveCSS('white-space', 'nowrap');
+  await expect(firstCell).toHaveCSS('text-overflow', 'ellipsis');
+}
+
+async function expectPreviewRowHeightsStableDuringHorizontalScroll(page: Page) {
+  const holder = page.locator('#data-harmonizer-grid .ht_master .wtHolder').first();
+  const before = await visiblePreviewRowHeights(page);
+  await holder.evaluate((element) => {
+    element.scrollLeft = 900;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  await page.waitForTimeout(100);
+  const after = await visiblePreviewRowHeights(page);
+  expect(after).toEqual(before);
+}
+
+async function visiblePreviewRowHeights(page: Page) {
+  return page.locator('#data-harmonizer-grid .ht_master .htCore tbody tr').evaluateAll((rows) =>
+    rows.map((row) => Math.round(row.getBoundingClientRect().height))
+  );
+}
+
 async function clickHotCell(cell: Locator) {
   await cell.evaluate((element) => {
     for (const type of ['mousedown', 'mouseup', 'click', 'dblclick']) {
@@ -259,4 +434,15 @@ async function clickHotCell(cell: Locator) {
       );
     }
   });
+}
+
+async function dragLocatorTowardCell(source: Locator, target: Locator, page: Page) {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) {
+    throw new Error('Could not determine drag coordinates.');
+  }
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height - 2, { steps: 12 });
 }

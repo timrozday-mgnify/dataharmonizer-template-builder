@@ -139,6 +139,8 @@ export default defineConfig({
               colWidths: 180,
               autoColumnSize: false,
               autoRowSize: false,
+              rowHeights: 30,
+              wordWrap: false,
               fixedColumnsLeft: 0,
               filters: false,
               manualColumnResize: false,

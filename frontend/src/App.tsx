@@ -13,11 +13,12 @@ import {
   Trash2
 } from 'lucide-react';
 import { textRenderer } from 'handsontable/renderers/textRenderer';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createIntegrationSession, generateSchema, getFrontendConfig } from './api';
 import { loadDataHarmonizerLibrary } from './dataHarmonizerLibrary';
 import { DataGrid } from './DataGrid';
+import { syncTables } from './tableSync';
 import type { AppContext } from 'data-harmonizer';
 import type { Diagnostic, FrontendConfig, GenerateResponse, ImportResponse, Row, Tables } from './types';
 
@@ -65,6 +66,8 @@ enums:
 
 const TABLE_ORDER = ['schema', 'classes', 'slots', 'enums', 'permissible_values', 'annotations'];
 const ENUM_WORKSPACE = '__enum_workspace';
+const SLOT_PINNED_COLUMNS = ['slot', 'rank'];
+const ENUM_VALUE_COLUMNS = ['permissible_value', 'text', 'description', 'meaning', 'comments'];
 const DEFAULT_FRONTEND_CONFIG: FrontendConfig = {
   showImportButton: true,
   showExportButton: true,
@@ -122,6 +125,18 @@ export function App() {
     applyFallbackTheme();
     media.addEventListener('change', applyFallbackTheme);
     return () => media.removeEventListener('change', applyFallbackTheme);
+  }, []);
+
+  useEffect(() => {
+    function preventHorizontalNavigation(event: WheelEvent) {
+      if (!event.cancelable || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      if (!canScrollHorizontally(event.target, event.deltaX)) {
+        event.preventDefault();
+      }
+    }
+
+    window.addEventListener('wheel', preventHorizontalNavigation, { passive: false });
+    return () => window.removeEventListener('wheel', preventHorizontalNavigation);
   }, []);
 
   useEffect(() => {
@@ -253,16 +268,25 @@ export function App() {
     await generateCurrentYaml({ updatePreview: true });
   }
 
-  function updateRows(tableName: string, rows: Row[]) {
-    setTables((current) => ({ ...current, [tableName]: rows }));
+  const updateRows = useCallback((tableName: string, rows: Row[]) => {
+    setTables((current) => syncTables(current, { ...current, [tableName]: rows }, { sourceTable: tableName }));
     setGenerated(null);
     window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
-  }
+  }, [schemaName, sessionId]);
+  const updateTables = useCallback((nextTables: Tables, sourceTable?: string) => {
+    setTables((current) => syncTables(current, nextTables, { sourceTable }));
+    setGenerated(null);
+    window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
+  }, [schemaName, sessionId]);
+  const updateActiveTableRows = useCallback(
+    (rows: Row[]) => updateRows(activeTable, rows),
+    [activeTable, updateRows]
+  );
 
-  function openEnum(enumName: string) {
+  const openEnum = useCallback((enumName: string) => {
     setSelectedEnum(enumName);
     setActiveTable(ENUM_WORKSPACE);
-  }
+  }, []);
 
   return (
     <main className="app-shell">
@@ -340,13 +364,13 @@ export function App() {
               tables={tables}
               selectedEnum={selectedEnum}
               onSelectEnum={setSelectedEnum}
-              onChange={setTables}
+              onChange={updateTables}
             />
           ) : activeTable && tables[activeTable] ? (
             <EditableTable
               tableName={activeTable}
               rows={tables[activeTable]}
-              onChange={(rows) => updateRows(activeTable, rows)}
+              onChange={updateActiveTableRows}
               enumNames={enumNames}
               onOpenEnum={openEnum}
             />
@@ -442,6 +466,17 @@ function EditableTable({
   function addRow() {
     onChange([...rows, Object.fromEntries(columns.map((column) => [column, '']))]);
   }
+  const rangeRenderer = useMemo(
+    () => (onOpenEnum ? enumRangeRenderer(enumNames, onOpenEnum) : undefined),
+    [enumNames, onOpenEnum]
+  );
+  const cellMeta = useCallback(
+    (_rowIndex: number, column: string) =>
+      column === 'range' && rangeRenderer
+        ? { renderer: rangeRenderer }
+        : undefined,
+    [rangeRenderer]
+  );
 
   if (!rows.length) {
     return (
@@ -459,12 +494,8 @@ function EditableTable({
         rows={rows}
         onChange={onChange}
         columns={columns}
-        pinnedColumns={tableName === 'slots' ? ['slot', 'rank'] : undefined}
-        cellMeta={(_rowIndex, column) =>
-          column === 'range' && onOpenEnum
-            ? { renderer: enumRangeRenderer(enumNames, onOpenEnum) }
-            : undefined
-        }
+        pinnedColumns={tableName === 'slots' ? SLOT_PINNED_COLUMNS : undefined}
+        cellMeta={cellMeta}
       />
       <button className="compact" onClick={addRow}>
         Add row
@@ -482,7 +513,7 @@ function EnumWorkspace({
   tables: Tables;
   selectedEnum: string;
   onSelectEnum: (enumName: string) => void;
-  onChange: (tables: Tables) => void;
+  onChange: (tables: Tables, sourceTable?: string) => void;
 }) {
   const [search, setSearch] = useState('');
   const [selectedValue, setSelectedValue] = useState('');
@@ -524,9 +555,9 @@ function EnumWorkspace({
     }
   }, [selectedValue, visibleValueRows]);
 
-  function patchTables(nextTables: Tables) {
-    onChange(nextTables);
-  }
+  const patchTables = useCallback((nextTables: Tables, sourceTable?: string) => {
+    onChange(nextTables, sourceTable);
+  }, [onChange]);
 
   function updateEnumField(column: string, value: string) {
     patchTables({
@@ -534,7 +565,7 @@ function EnumWorkspace({
       enums: enumRows.map((row) =>
         cellText(row.enum) === effectiveEnum ? { ...row, [column]: value } : row
       )
-    });
+    }, 'enums');
   }
 
   function renameEnum(nextName: string) {
@@ -551,7 +582,7 @@ function EnumWorkspace({
       slots: slotRows.map((row) =>
         cellText(row.range) === effectiveEnum ? { ...row, range: cleanName } : row
       )
-    });
+    }, 'enums');
     onSelectEnum(cleanName);
   }
 
@@ -564,7 +595,7 @@ function EnumWorkspace({
         ...valueRows,
         { enum: effectiveEnum, permissible_value: value, text: value, description: '', meaning: '', comments: '' }
       ]
-    });
+    }, 'permissible_values');
     setSelectedValue(value);
   }
 
@@ -575,7 +606,7 @@ function EnumWorkspace({
     patchTables({
       ...tables,
       permissible_values: [...valueRows, { ...source, permissible_value: value, text: value, enum: effectiveEnum }]
-    });
+    }, 'permissible_values');
     setSelectedValue(value);
   }
 
@@ -586,22 +617,30 @@ function EnumWorkspace({
       permissible_values: valueRows.filter(
         (row) => !(cellText(row.enum) === effectiveEnum && cellText(row.permissible_value) === selectedValue)
       )
-    });
+    }, 'permissible_values');
   }
 
-  function updateValues(nextVisibleRows: Row[]) {
+  const updateValues = useCallback((nextVisibleRows: Row[]) => {
     patchTables({
       ...tables,
       permissible_values: valueRows.map((row, index) => {
         const visibleIndex = visibleValueRows.findIndex(({ sourceIndex }) => sourceIndex === index);
         return visibleIndex === -1 ? row : { ...row, ...nextVisibleRows[visibleIndex] };
       })
-    });
+    }, 'permissible_values');
     const selectedIndex = visibleValueRows.findIndex(({ row }) => cellText(row.permissible_value) === selectedValue);
     if (selectedIndex !== -1) {
-      setSelectedValue(cellText(nextVisibleRows[selectedIndex]?.permissible_value));
+      const nextSelectedValue = cellText(nextVisibleRows[selectedIndex]?.permissible_value);
+      setSelectedValue((current) => (current === nextSelectedValue ? current : nextSelectedValue));
     }
-  }
+  }, [patchTables, selectedValue, tables, valueRows, visibleValueRows]);
+  const selectVisibleValueRow = useCallback(
+    (rowIndex: number | null) => {
+      const nextSelectedValue = rowIndex === null ? '' : cellText(visibleValueRows[rowIndex]?.row.permissible_value);
+      setSelectedValue((current) => (current === nextSelectedValue ? current : nextSelectedValue));
+    },
+    [visibleValueRows]
+  );
 
   if (!enumRows.length) {
     return <div className="empty-state">No enums in this schema.</div>;
@@ -665,13 +704,11 @@ function EnumWorkspace({
         </div>
         <div className="enum-values table-wrap">
           <DataGrid
-            columns={['permissible_value', 'text', 'description', 'meaning', 'comments']}
+            columns={ENUM_VALUE_COLUMNS}
             enableRowOps={false}
             rows={visibleValueGridRows}
             onChange={updateValues}
-            onRowSelect={(rowIndex) => {
-              setSelectedValue(rowIndex === null ? '' : cellText(visibleValueRows[rowIndex]?.row.permissible_value));
-            }}
+            onRowSelect={selectVisibleValueRow}
             selectedRowIndex={selectedVisibleRowIndex}
           />
         </div>
@@ -846,6 +883,21 @@ function cellText(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function canScrollHorizontally(target: EventTarget | null, deltaX: number): boolean {
+  let element = target instanceof Element ? target : null;
+  while (element && element !== document.body) {
+    const style = window.getComputedStyle(element);
+    const allowsHorizontalScroll = ['auto', 'scroll', 'overlay'].includes(style.overflowX);
+    if (allowsHorizontalScroll && element.scrollWidth > element.clientWidth) {
+      const maxScrollLeft = element.scrollWidth - element.clientWidth;
+      if (deltaX < 0 && element.scrollLeft > 0) return true;
+      if (deltaX > 0 && element.scrollLeft < maxScrollLeft) return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
 }
 
 function firstReferencedEnum(tables: Tables): string {

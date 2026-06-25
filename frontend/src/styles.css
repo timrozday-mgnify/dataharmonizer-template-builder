@@ -19,6 +19,12 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  overscroll-behavior-x: none;
+}
+
 body {
   margin: 0;
   min-width: 1100px;
@@ -37,6 +43,7 @@ textarea {
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: 100vh;
+  overscroll-behavior-x: none;
 }
 
 .sidebar {
@@ -266,8 +273,13 @@ textarea {
 }
 
 .table-wrap {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
   overflow: auto;
   flex: 1;
+  overscroll-behavior-x: contain;
 }
 
 .hot-grid-wrap {
@@ -276,6 +288,7 @@ textarea {
   height: 100%;
   flex: 1;
   overflow: hidden;
+  overscroll-behavior-x: contain;
 }
 
 .hot-grid-wrap .ht-theme-main {
@@ -302,6 +315,9 @@ textarea {
 .hot-grid-wrap .handsontable td {
   background: var(--bg);
   color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hot-grid-wrap .handsontable th {
@@ -324,14 +340,14 @@ textarea {
   white-space: nowrap;
 }
 
-table {
+table:not(.htCore) {
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
   font-size: 12px;
 }
 
-th {
+table:not(.htCore) th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -342,13 +358,13 @@ th {
   text-transform: capitalize;
 }
 
-th,
-td {
+table:not(.htCore) th,
+table:not(.htCore) td {
   border: 1px solid var(--line);
   padding: 0;
 }
 
-td input {
+table:not(.htCore) td input {
   width: 220px;
   min-height: 32px;
   border: 0;
@@ -358,7 +374,7 @@ td input {
   outline: none;
 }
 
-td input:focus {
+table:not(.htCore) td input:focus {
   background: color-mix(in srgb, var(--accent) 16%, var(--bg));
   box-shadow: inset 0 0 0 2px var(--accent);
 }
@@ -689,4 +705,10 @@ td input:focus {
 
 #data-harmonizer-grid .data-harmonizer-grid {
   max-width: 100%;
+}
+
+#data-harmonizer-grid .handsontable td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
