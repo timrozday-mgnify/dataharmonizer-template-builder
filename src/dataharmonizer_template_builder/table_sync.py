@@ -17,14 +17,15 @@ ENUM_TABLE = "enums"
 PERMISSIBLE_VALUE_TABLE = "permissible_values"
 ANNOTATION_TABLE = "annotations"
 
-SLOT_ANNOTATION_COLUMN_PREFIX = "annotation_"
+SLOT_ANNOTATION_COLUMN_PREFIX = "Annotation: "
+LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX = "annotation_"
 
 LEGACY_SLOT_ANNOTATION_COLUMNS = {
     "mimicc_default_unit": "default_unit",
 }
 
 LEGACY_SLOT_ROW_COLUMNS = {
-    "annotation_mimicc_default_unit": "annotation_default_unit",
+    "annotation_mimicc_default_unit": "Annotation: default_unit",
 }
 
 
@@ -231,6 +232,7 @@ def _migrate_legacy_slot_annotations(rows: list[JsonDict]) -> None:
 
 def _migrate_legacy_slot_row_columns(rows: Iterable[JsonDict]) -> None:
     for row in rows:
+        _migrate_legacy_slot_annotation_columns(row)
         for legacy_key, row_key in LEGACY_SLOT_ROW_COLUMNS.items():
             if not _cell(row.get(row_key)) and _cell(row.get(legacy_key)):
                 row[row_key] = row[legacy_key]
@@ -255,9 +257,9 @@ def _cell(value: Any) -> str:
 
 def _slot_annotation_columns(row: Mapping[str, Any]) -> list[str]:
     return [
-        key
+        _annotation_column_for_key(_annotation_key_for_column(key))
         for key in row
-        if key.startswith(SLOT_ANNOTATION_COLUMN_PREFIX) and key != SLOT_ANNOTATION_COLUMN_PREFIX
+        if _is_slot_annotation_column(key)
     ]
 
 
@@ -267,5 +269,32 @@ def _annotation_column_for_key(key: str) -> str:
 
 
 def _annotation_key_for_column(column: str) -> str:
-    key = column.removeprefix(SLOT_ANNOTATION_COLUMN_PREFIX)
+    if column.startswith(SLOT_ANNOTATION_COLUMN_PREFIX):
+        key = column.removeprefix(SLOT_ANNOTATION_COLUMN_PREFIX)
+    else:
+        key = column.removeprefix(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX)
     return LEGACY_SLOT_ANNOTATION_COLUMNS.get(key, key)
+
+
+def _migrate_legacy_slot_annotation_columns(row: JsonDict) -> None:
+    for column in list(row):
+        if not _is_legacy_slot_annotation_column(column):
+            continue
+        canonical_column = _annotation_column_for_key(_annotation_key_for_column(column))
+        if not _cell(row.get(canonical_column)) and _cell(row.get(column)):
+            row[canonical_column] = row[column]
+        row.pop(column, None)
+
+
+def _is_slot_annotation_column(column: str) -> bool:
+    return (
+        column.startswith(SLOT_ANNOTATION_COLUMN_PREFIX)
+        and column != SLOT_ANNOTATION_COLUMN_PREFIX
+    ) or _is_legacy_slot_annotation_column(column)
+
+
+def _is_legacy_slot_annotation_column(column: str) -> bool:
+    return (
+        column.startswith(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX)
+        and column != LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX
+    )

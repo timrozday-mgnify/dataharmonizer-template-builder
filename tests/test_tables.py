@@ -116,16 +116,17 @@ slots:
     editable_tables = schema_to_tables(schema)
     slot = editable_tables["slots"][0]
 
-    assert slot["annotation_id"] == "sample_id"
-    assert slot["annotation_ena_allowed_units"] == "mL; L"
-    assert slot["annotation_source"] == "MIMICC"
+    assert "annotation_id" not in slot
+    assert slot["Annotation: id"] == "sample_id"
+    assert slot["Annotation: ena_allowed_units"] == "mL; L"
+    assert slot["Annotation: source"] == "MIMICC"
 
 
 def test_tables_to_schema_uses_dynamic_slot_annotation_columns() -> None:
     schema = linkml_io.load_yaml_text(SAMPLE_SCHEMA)
     editable_tables = schema_to_tables(schema)
     slot = next(row for row in editable_tables["slots"] if row["slot"] == "sample_id")
-    slot["annotation_ena_allowed_units"] = "mL; L"
+    slot["Annotation: ena_allowed_units"] = "mL; L"
 
     rebuilt, diagnostics = tables_to_schema(editable_tables)
 
@@ -152,7 +153,7 @@ slots:
     )
     editable_tables = schema_to_tables(schema)
 
-    assert editable_tables["slots"][0]["annotation_default_unit"] == "mL"
+    assert editable_tables["slots"][0]["Annotation: default_unit"] == "mL"
 
     rebuilt, diagnostics = tables_to_schema(editable_tables)
 

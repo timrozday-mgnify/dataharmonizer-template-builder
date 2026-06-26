@@ -22,7 +22,8 @@ from linkml_lib.edit_tables import tables_to_schema as _linkml_tables_to_schema
 
 JsonDict = dict[str, Any]
 TableRows = dict[str, list[JsonDict]]
-ANNOTATION_COLUMN_PREFIX = "annotation_"
+ANNOTATION_COLUMN_PREFIX = "Annotation: "
+LEGACY_ANNOTATION_COLUMN_PREFIX = "annotation_"
 LEGACY_SLOT_ANNOTATION_KEYS = {
     "mimicc_default_unit": "default_unit",
 }
@@ -63,6 +64,8 @@ def _project_slot_annotation_columns(tables: TableRows) -> None:
     slot_rows_by_name = {
         _cell(row.get("slot")): row for row in tables.get(SLOT_TABLE, []) if _cell(row.get("slot"))
     }
+    for slot_row in slot_rows_by_name.values():
+        _migrate_legacy_slot_annotation_columns(slot_row)
     for row in tables.get(ANNOTATION_TABLE, []):
         if _cell(row.get("element_type")) != "slot":
             continue
@@ -76,6 +79,7 @@ def _tables_with_slot_annotation_rows(tables: Mapping[str, list[JsonDict]]) -> T
     prepared = copy.deepcopy(dict(tables))
     annotation_rows = prepared.setdefault(ANNOTATION_TABLE, [])
     for slot_row in prepared.get(SLOT_TABLE, []):
+        _migrate_legacy_slot_annotation_columns(slot_row)
         slot_name = _cell(slot_row.get("slot"))
         if not slot_name:
             continue
@@ -106,7 +110,7 @@ def _tables_with_slot_annotation_rows(tables: Mapping[str, list[JsonDict]]) -> T
 
 
 def _slot_annotation_columns(tables: Mapping[str, list[JsonDict]] | None = None) -> list[str]:
-    columns = ["annotation_id", "annotation_default_unit"]
+    columns = ["Annotation: id", "Annotation: default_unit"]
     if tables is not None:
         for row in tables.get(SLOT_TABLE, []):
             columns.extend(_slot_annotation_columns_for_row(row))
@@ -118,10 +122,9 @@ def _slot_annotation_columns(tables: Mapping[str, list[JsonDict]] | None = None)
 
 def _slot_annotation_columns_for_row(row: Mapping[str, Any]) -> list[str]:
     return [
-        column
+        _annotation_column_for_key(_annotation_key_for_column(column))
         for column in row
-        if column.startswith(ANNOTATION_COLUMN_PREFIX)
-        and column != ANNOTATION_COLUMN_PREFIX
+        if _is_slot_annotation_column(column)
     ]
 
 
@@ -130,7 +133,11 @@ def _annotation_column_for_key(key: str) -> str:
 
 
 def _annotation_key_for_column(column: str) -> str:
-    return _normalized_annotation_key(column.removeprefix(ANNOTATION_COLUMN_PREFIX))
+    if column.startswith(ANNOTATION_COLUMN_PREFIX):
+        key = column.removeprefix(ANNOTATION_COLUMN_PREFIX)
+    else:
+        key = column.removeprefix(LEGACY_ANNOTATION_COLUMN_PREFIX)
+    return _normalized_annotation_key(key)
 
 
 def _normalized_annotation_key(key: str) -> str:
@@ -139,3 +146,27 @@ def _normalized_annotation_key(key: str) -> str:
 
 def _cell(value: Any) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _migrate_legacy_slot_annotation_columns(row: JsonDict) -> None:
+    for column in list(row):
+        if not _is_legacy_slot_annotation_column(column):
+            continue
+        canonical_column = _annotation_column_for_key(_annotation_key_for_column(column))
+        if not _cell(row.get(canonical_column)) and _cell(row.get(column)):
+            row[canonical_column] = row[column]
+        row.pop(column, None)
+
+
+def _is_slot_annotation_column(column: str) -> bool:
+    return (
+        column.startswith(ANNOTATION_COLUMN_PREFIX)
+        and column != ANNOTATION_COLUMN_PREFIX
+    ) or _is_legacy_slot_annotation_column(column)
+
+
+def _is_legacy_slot_annotation_column(column: str) -> bool:
+    return (
+        column.startswith(LEGACY_ANNOTATION_COLUMN_PREFIX)
+        and column != LEGACY_ANNOTATION_COLUMN_PREFIX
+    )

@@ -7,7 +7,7 @@ from tests.test_tables import SAMPLE_SCHEMA
 def test_slot_annotation_columns_sync_to_annotation_rows() -> None:
     tables = schema_to_tables(linkml_io.load_yaml_text(SAMPLE_SCHEMA))
     slot = next(row for row in tables["slots"] if row["slot"] == "sample_id")
-    slot["annotation_id"] = "updated"
+    slot["Annotation: id"] = "updated"
 
     synced, diagnostics = sync_tables(tables, source_table="slots")
 
@@ -48,7 +48,7 @@ slots:
     slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
 
     assert diagnostics == []
-    assert slot["annotation_source"] == "updated"
+    assert slot["Annotation: source"] == "updated"
 
 
 def test_annotation_rows_sync_to_slot_annotation_columns() -> None:
@@ -64,13 +64,13 @@ def test_annotation_rows_sync_to_slot_annotation_columns() -> None:
     slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
 
     assert diagnostics == []
-    assert slot["annotation_id"] == "sample identifier"
+    assert slot["Annotation: id"] == "sample identifier"
 
 
 def test_dynamic_slot_annotation_columns_sync_to_annotation_rows() -> None:
     tables = schema_to_tables(linkml_io.load_yaml_text(SAMPLE_SCHEMA))
     slot = next(row for row in tables["slots"] if row["slot"] == "sample_id")
-    slot["annotation_ena_allowed_units"] = "mL; L"
+    slot["Annotation: ena_allowed_units"] = "mL; L"
 
     synced, diagnostics = sync_tables(tables, source_table="slots")
 
@@ -106,7 +106,7 @@ slots:
     slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
 
     assert diagnostics == []
-    assert slot["annotation_source"] == ""
+    assert slot["Annotation: source"] == ""
 
 
 def test_legacy_default_unit_annotation_syncs_to_default_unit_column() -> None:
@@ -131,7 +131,7 @@ slots:
     slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
 
     assert diagnostics == []
-    assert slot["annotation_default_unit"] == "mL"
+    assert slot["Annotation: default_unit"] == "mL"
     assert {
         "element_type": "slot",
         "element": "sample_id",
@@ -139,6 +139,25 @@ slots:
         "value": "mL",
     } in synced["annotations"]
     assert all(row["key"] != "mimicc_default_unit" for row in synced["annotations"])
+
+
+def test_legacy_slot_annotation_columns_migrate_to_annotation_prefix() -> None:
+    tables = schema_to_tables(linkml_io.load_yaml_text(SAMPLE_SCHEMA))
+    slot = next(row for row in tables["slots"] if row["slot"] == "sample_id")
+    slot["annotation_ena_allowed_units"] = "mL; L"
+
+    synced, diagnostics = sync_tables(tables, source_table="slots")
+    synced_slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
+
+    assert diagnostics == []
+    assert "annotation_ena_allowed_units" not in synced_slot
+    assert synced_slot["Annotation: ena_allowed_units"] == "mL; L"
+    assert {
+        "element_type": "slot",
+        "element": "sample_id",
+        "key": "ena_allowed_units",
+        "value": "mL; L",
+    } in synced["annotations"]
 
 
 def test_enum_annotations_sync_to_annotation_rows() -> None:

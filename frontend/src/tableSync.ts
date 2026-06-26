@@ -1,13 +1,14 @@
 import type { Row, Tables } from './types';
 
-const SLOT_ANNOTATION_COLUMN_PREFIX = 'annotation_';
+const SLOT_ANNOTATION_COLUMN_PREFIX = 'Annotation: ';
+const LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX = 'annotation_';
 
 const LEGACY_SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
   mimicc_default_unit: 'default_unit'
 };
 
 const LEGACY_SLOT_ROW_COLUMNS: Record<string, string> = {
-  annotation_mimicc_default_unit: 'annotation_default_unit'
+  annotation_mimicc_default_unit: 'Annotation: default_unit'
 };
 
 type SyncOptions = {
@@ -213,6 +214,7 @@ function upsertAnnotation(
 
 function migrateLegacySlotRowColumns(tables: Tables) {
   for (const row of tables.slots ?? []) {
+    migrateLegacySlotAnnotationColumns(row);
     for (const [legacyKey, rowKey] of Object.entries(LEGACY_SLOT_ROW_COLUMNS)) {
       if (!cellText(row[rowKey]) && cellText(row[legacyKey])) {
         row[rowKey] = row[legacyKey];
@@ -233,9 +235,9 @@ function migrateLegacySlotAnnotations(tables: Tables) {
 }
 
 function slotAnnotationColumns(row: Row) {
-  return Object.keys(row).filter(
-    (key) => key.startsWith(SLOT_ANNOTATION_COLUMN_PREFIX) && key !== SLOT_ANNOTATION_COLUMN_PREFIX
-  );
+  return Object.keys(row)
+    .filter((key) => isSlotAnnotationColumn(key))
+    .map((key) => annotationColumnForKey(annotationKeyForColumn(key)));
 }
 
 function annotationColumnForKey(key: string) {
@@ -246,8 +248,33 @@ function annotationColumnForKey(key: string) {
 function annotationKeyForColumn(column: string) {
   const key = column.startsWith(SLOT_ANNOTATION_COLUMN_PREFIX)
     ? column.slice(SLOT_ANNOTATION_COLUMN_PREFIX.length)
-    : column;
+    : column.slice(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX.length);
   return LEGACY_SLOT_ANNOTATION_COLUMNS[key] ?? key;
+}
+
+function migrateLegacySlotAnnotationColumns(row: Row) {
+  for (const column of Object.keys(row)) {
+    if (!isLegacySlotAnnotationColumn(column)) continue;
+    const canonicalColumn = annotationColumnForKey(annotationKeyForColumn(column));
+    if (!cellText(row[canonicalColumn]) && cellText(row[column])) {
+      row[canonicalColumn] = row[column];
+    }
+    delete row[column];
+  }
+}
+
+function isSlotAnnotationColumn(column: string) {
+  return (
+    (column.startsWith(SLOT_ANNOTATION_COLUMN_PREFIX) && column !== SLOT_ANNOTATION_COLUMN_PREFIX) ||
+    isLegacySlotAnnotationColumn(column)
+  );
+}
+
+function isLegacySlotAnnotationColumn(column: string) {
+  return (
+    column.startsWith(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX) &&
+    column !== LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX
+  );
 }
 
 function parseMapping(value: unknown): Record<string, Row[string]> {
