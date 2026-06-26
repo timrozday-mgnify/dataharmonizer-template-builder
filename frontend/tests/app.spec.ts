@@ -139,7 +139,7 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
   await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('draft');
   await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('ready');
 
-  await page.getByRole('button', { name: /Add/ }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
   const newRow = page.locator('.enum-values .ht_master .htCore tbody tr').last();
   await fillHotCell(newRow.locator('td', { hasText: 'new_value' }).filter({ visible: true }).first(), 'archived');
 
@@ -149,6 +149,74 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
 
   await expect(page.locator('.generated-output')).toContainText('StatusChoiceMenu');
   await expect(page.locator('.generated-output')).toContainText('archived');
+});
+
+test('adds a new enum from the focused enum workspace', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'Enum workspace' }).click();
+
+  await page.getByRole('button', { name: 'Add enum' }).click();
+  await expect(page.getByRole('button', { name: /NewEnumMenu/ })).toBeVisible();
+  await expect(page.locator('.enum-meta label').first().locator('input')).toHaveValue('NewEnumMenu');
+
+  await page.getByRole('button', { name: /^Add$/ }).click();
+  const newValueCell = page
+    .locator('.enum-values .ht_master .htCore tbody tr')
+    .first()
+    .locator('td')
+    .filter({ visible: true })
+    .first();
+  await fillHotCell(newValueCell, 'fresh');
+
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await page.getByRole('button', { name: 'Export YAML' }).first().click();
+
+  await expect(page.locator('.generated-output')).toContainText('NewEnumMenu');
+  await expect(page.locator('.generated-output')).toContainText('fresh');
+});
+
+test('supports enum value grid row insertion deletion and sorting controls', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'Enum workspace' }).click();
+
+  const draftCell = page
+    .locator('.enum-values .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'draft' })
+    .filter({ visible: true })
+    .first();
+  await draftCell.click({ button: 'right', force: true });
+  const contextMenu = page.locator('.htContextMenu').filter({ hasText: 'Insert row above' });
+  await expect(contextMenu.getByText('Remove row')).toBeVisible();
+  await contextMenu.getByText('Insert row above').click();
+
+  const insertedCell = page
+    .locator('.enum-values .ht_master .htCore tbody tr')
+    .first()
+    .locator('td')
+    .filter({ visible: true })
+    .first();
+  await fillHotCell(insertedCell, 'archived');
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('archived');
+
+  const archivedCell = page
+    .locator('.enum-values .ht_master .htCore tbody tr')
+    .locator('td', { hasText: 'archived' })
+    .filter({ visible: true })
+    .first();
+  await clickHotCell(archivedCell);
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).not.toContainText('archived');
+
+  const valueHeader = page.locator('.enum-values .ht_clone_top .htCore thead th').filter({ hasText: 'permissible value' }).first();
+  await valueHeader.click();
+  await expect(page.locator('.enum-values .ht_clone_top .columnSorting').filter({ hasText: 'permissible value' }).first()).toBeVisible();
 });
 
 test('syncs raw enum table renames to linked tables', async ({ page }) => {
@@ -296,7 +364,7 @@ test('keeps focus while typing in editable grid cells', async ({ page }) => {
 
   await importDemoSchema(page);
   await page.getByRole('button', { name: 'Enum workspace' }).click();
-  await page.getByRole('button', { name: /Add/ }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
 
   const valueCell = page
     .locator('.enum-values .ht_master .htCore tbody tr')

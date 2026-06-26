@@ -704,6 +704,17 @@ function EnumWorkspace({
     onSelectEnum(cleanName);
   }
 
+  function addEnum() {
+    const enumName = uniqueEnumName(enumRows, 'NewEnumMenu');
+    patchTables({
+      ...tables,
+      enums: [...enumRows, { enum: enumName, description: '', annotations: '' }]
+    }, 'enums', { tableName: ENUM_WORKSPACE, column: 'enum', enumName });
+    onSelectEnum(enumName);
+    setSearch('');
+    setSelectedValue('');
+  }
+
   function addValue() {
     if (!effectiveEnum) return;
     const value = uniqueValueKey(enumValueRows.map(({ row }) => row), 'new_value');
@@ -754,19 +765,17 @@ function EnumWorkspace({
   }
 
   const updateValues = useCallback((nextVisibleRows: Row[], location?: EditLocation) => {
+    const nextEnumRows = reconcileEnumValueRows(enumValueRows, visibleValueRows, nextVisibleRows, effectiveEnum, search);
     patchTables({
       ...tables,
-      permissible_values: valueRows.map((row, index) => {
-        const visibleIndex = visibleValueRows.findIndex(({ sourceIndex }) => sourceIndex === index);
-        return visibleIndex === -1 ? row : { ...row, ...nextVisibleRows[visibleIndex] };
-      })
+      permissible_values: replaceEnumValueRows(valueRows, effectiveEnum, nextEnumRows)
     }, 'permissible_values', { ...location, tableName: ENUM_WORKSPACE, enumName: effectiveEnum });
     const selectedIndex = visibleValueRows.findIndex(({ row }) => cellText(row.permissible_value) === selectedValue);
     if (selectedIndex !== -1) {
       const nextSelectedValue = cellText(nextVisibleRows[selectedIndex]?.permissible_value);
       setSelectedValue((current) => (current === nextSelectedValue ? current : nextSelectedValue));
     }
-  }, [effectiveEnum, patchTables, selectedValue, tables, valueRows, visibleValueRows]);
+  }, [effectiveEnum, enumValueRows, patchTables, search, selectedValue, tables, valueRows, visibleValueRows]);
   const selectVisibleValueRow = useCallback(
     (rowIndex: number | null) => {
       const nextSelectedValue = rowIndex === null ? '' : cellText(visibleValueRows[rowIndex]?.row.permissible_value);
@@ -776,26 +785,37 @@ function EnumWorkspace({
   );
 
   if (!enumRows.length) {
-    return <div className="empty-state">No enums in this schema.</div>;
+    return (
+      <div className="empty-state">
+        <button className="command" onClick={addEnum}>
+          <Plus size={15} /> Add enum
+        </button>
+      </div>
+    );
   }
 
   return (
     <div className="enum-workspace">
       <aside className="enum-browser" aria-label="Enums">
-        {enumRows.map((row) => {
-          const enumName = cellText(row.enum);
-          const valueCount = valueRows.filter((valueRow) => cellText(valueRow.enum) === enumName).length;
-          return (
-            <button
-              key={enumName}
-              className={enumName === effectiveEnum ? 'selected' : ''}
-              onClick={() => onSelectEnum(enumName)}
-            >
-              <strong>{enumName}</strong>
-              <span>{valueCount} values · {referenceCounts.get(enumName) ?? 0} refs</span>
-            </button>
-          );
-        })}
+        <div className="enum-browser-header">
+          <button className="compact" onClick={addEnum}><Plus size={15} /> Add enum</button>
+        </div>
+        <div className="enum-browser-list">
+          {enumRows.map((row) => {
+            const enumName = cellText(row.enum);
+            const valueCount = valueRows.filter((valueRow) => cellText(valueRow.enum) === enumName).length;
+            return (
+              <button
+                key={enumName}
+                className={enumName === effectiveEnum ? 'selected' : ''}
+                onClick={() => onSelectEnum(enumName)}
+              >
+                <strong>{enumName}</strong>
+                <span>{valueCount} values · {referenceCounts.get(enumName) ?? 0} refs</span>
+              </button>
+            );
+          })}
+        </div>
       </aside>
       <section className="enum-editor">
         <div className="enum-meta">
@@ -840,7 +860,6 @@ function EnumWorkspace({
             key={`${effectiveEnum}:${ENUM_VALUE_COLUMNS.join('\u001f')}`}
             tableName={ENUM_WORKSPACE}
             columns={ENUM_VALUE_COLUMNS}
-            enableRowOps={false}
             rows={visibleValueGridRows}
             onChange={updateValues}
             onRowSelect={selectVisibleValueRow}
@@ -1135,8 +1154,87 @@ function enumRowMatches(row: Row, search: string): boolean {
   );
 }
 
+function reconcileEnumValueRows(
+  enumRows: { row: Row; sourceIndex: number }[],
+  visibleRows: { row: Row; sourceIndex: number }[],
+  nextVisibleRows: Row[],
+  enumName: string,
+  search: string
+): Row[] {
+  const normalizedNextRows = nextVisibleRows.map((row) => normalizeEnumValueRow(row, enumName));
+  if (!search.trim()) {
+    return normalizedNextRows;
+  }
+
+  const visibleSourceIndexes = new Set(visibleRows.map(({ sourceIndex }) => sourceIndex));
+  const mergedRows: Row[] = [];
+  let nextIndex = 0;
+  let inserted = false;
+  for (const { row, sourceIndex } of enumRows) {
+    if (!visibleSourceIndexes.has(sourceIndex)) {
+      mergedRows.push(row);
+      continue;
+    }
+    if (nextIndex < normalizedNextRows.length) {
+      mergedRows.push(normalizedNextRows[nextIndex]);
+      nextIndex += 1;
+    }
+    inserted = true;
+  }
+  const remainingRows = normalizedNextRows.slice(nextIndex);
+  if (remainingRows.length) {
+    if (inserted) {
+      mergedRows.push(...remainingRows);
+    } else {
+      return [...enumRows.map(({ row }) => row), ...remainingRows];
+    }
+  }
+  return mergedRows;
+}
+
+function replaceEnumValueRows(valueRows: Row[], enumName: string, nextEnumRows: Row[]): Row[] {
+  if (!enumName) return valueRows;
+  const nextRows: Row[] = [];
+  let insertedReplacement = false;
+  for (const row of valueRows) {
+    if (cellText(row.enum) !== enumName) {
+      nextRows.push(row);
+      continue;
+    }
+    if (!insertedReplacement) {
+      nextRows.push(...nextEnumRows);
+      insertedReplacement = true;
+    }
+  }
+  if (!insertedReplacement) {
+    nextRows.push(...nextEnumRows);
+  }
+  return nextRows;
+}
+
+function normalizeEnumValueRow(row: Row, enumName: string): Row {
+  return {
+    enum: enumName,
+    permissible_value: row.permissible_value ?? '',
+    text: row.text ?? '',
+    description: row.description ?? '',
+    meaning: row.meaning ?? '',
+    comments: row.comments ?? ''
+  };
+}
+
 function uniqueValueKey(rows: Row[], base: string): string {
   const existing = new Set(rows.map((row) => cellText(row.permissible_value)));
+  if (!existing.has(base)) return base;
+  let index = 2;
+  while (existing.has(`${base}_${index}`)) {
+    index += 1;
+  }
+  return `${base}_${index}`;
+}
+
+function uniqueEnumName(rows: Row[], base: string): string {
+  const existing = new Set(rows.map((row) => cellText(row.enum)));
   if (!existing.has(base)) return base;
   let index = 2;
   while (existing.has(`${base}_${index}`)) {

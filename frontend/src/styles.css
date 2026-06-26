@@ -517,7 +517,22 @@ table:not(.htCore) td input:focus {
   background: var(--panel);
 }
 
-.enum-browser button {
+.enum-browser-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.enum-browser-header .compact {
+  width: 100%;
+  justify-content: center;
+  margin: 0;
+}
+
+.enum-browser-list button {
   display: grid;
   gap: 4px;
   width: 100%;
@@ -530,19 +545,19 @@ table:not(.htCore) td input:focus {
   text-align: left;
 }
 
-.enum-browser button.selected {
+.enum-browser-list button.selected {
   background: color-mix(in srgb, var(--accent) 16%, var(--bg));
   box-shadow: inset 4px 0 0 var(--accent);
 }
 
-.enum-browser strong,
-.enum-browser span {
+.enum-browser-list strong,
+.enum-browser-list span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.enum-browser span {
+.enum-browser-list span {
   color: var(--muted);
   font-size: 11px;
 }
