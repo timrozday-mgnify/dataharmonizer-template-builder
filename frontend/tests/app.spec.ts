@@ -172,6 +172,65 @@ test('syncs raw enum table renames to linked tables', async ({ page }) => {
   await expect(page.locator('.generated-output')).not.toContainText('StatusMenu');
 });
 
+test('undoes and redoes synced table edits as one shared history action', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'enums' }).click();
+  const enumCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'StatusMenu' })
+    .filter({ visible: true })
+    .first();
+  await replaceHotCell(enumCell, 'StatusRawMenu');
+
+  await page.getByRole('button', { name: 'slots' }).click();
+  const slotCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .filter({ hasText: 'status' })
+    .locator('td', { hasText: 'StatusRawMenu' })
+    .filter({ visible: true })
+    .first();
+  await expect(slotCell).toBeVisible();
+  await clickHotCell(slotCell);
+
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('enums');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('StatusMenu');
+
+  await page.keyboard.press('Control+Y');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('StatusRawMenu');
+
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('StatusRawMenu');
+});
+
+test('supports shift-z redo and clears history after successful generation', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  const sampleCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'sample_id' })
+    .filter({ visible: true })
+    .first();
+  await replaceHotCell(sampleCell, 'sample_code');
+
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('sample_id');
+  await page.keyboard.press('Control+Shift+Z');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('sample_code');
+
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await clickHotCell(page.locator('.table-panel .ht_master .htCore tbody td', { hasText: 'sample_code' }).filter({ visible: true }).first());
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('sample_code');
+});
+
 test('syncs annotation table edits into generated slot annotations', async ({ page }) => {
   await routeStandaloneFrontendConfig(page);
   await page.goto('/');

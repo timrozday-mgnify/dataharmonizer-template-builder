@@ -20,7 +20,7 @@ import { loadDataHarmonizerLibrary } from './dataHarmonizerLibrary';
 import { DataGrid } from './DataGrid';
 import { syncTables } from './tableSync';
 import type { AppContext } from 'data-harmonizer';
-import type { Diagnostic, FrontendConfig, GenerateResponse, ImportResponse, Row, Tables } from './types';
+import type { Diagnostic, EditLocation, FrontendConfig, GenerateResponse, ImportResponse, Row, Tables } from './types';
 
 const EXAMPLE_SCHEMA = `id: https://example.org/template-builder-demo
 name: template_builder_demo
@@ -68,6 +68,7 @@ const TABLE_ORDER = ['schema', 'classes', 'slots', 'enums', 'permissible_values'
 const ENUM_WORKSPACE = '__enum_workspace';
 const SLOT_PINNED_COLUMNS = ['slot', 'rank'];
 const ENUM_VALUE_COLUMNS = ['permissible_value', 'text', 'description', 'meaning', 'comments'];
+const HISTORY_LIMIT = 100;
 const DEFAULT_FRONTEND_CONFIG: FrontendConfig = {
   showImportButton: true,
   showExportButton: true,
@@ -77,6 +78,12 @@ const DEFAULT_FRONTEND_CONFIG: FrontendConfig = {
   allowExampleSchema: true,
   hostName: '',
   hostMode: 'standalone'
+};
+
+type HistoryEntry = {
+  beforeTables: Tables;
+  afterTables: Tables;
+  location?: EditLocation;
 };
 
 export function App() {
@@ -93,11 +100,76 @@ export function App() {
   const [openPopup, setOpenPopup] = useState<'import' | 'export' | null>(null);
   const [frontendConfig, setFrontendConfig] = useState<FrontendConfig>(DEFAULT_FRONTEND_CONFIG);
   const [busy, setBusy] = useState(false);
+  const historyRef = useRef<{ undo: HistoryEntry[]; redo: HistoryEntry[] }>({ undo: [], redo: [] });
+  const schemaEditorHasFocusRef = useRef(false);
+  const [focusLocation, setFocusLocation] = useState<EditLocation | null>(null);
   const tableNames = useMemo(
     () => TABLE_ORDER.filter((name) => tables[name]).concat(Object.keys(tables).filter((name) => !TABLE_ORDER.includes(name))),
     [tables]
   );
   const enumNames = useMemo(() => new Set((tables.enums ?? []).map((row) => cellText(row.enum)).filter(Boolean)), [tables]);
+
+  const resetHistory = useCallback(() => {
+    historyRef.current = { undo: [], redo: [] };
+    setFocusLocation(null);
+  }, []);
+
+  const markChanged = useCallback(() => {
+    setGenerated(null);
+    setPreviewGenerated(null);
+    window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
+  }, [schemaName, sessionId]);
+
+  const navigateToEdit = useCallback((location?: EditLocation) => {
+    if (!location) return;
+    setActiveTable(location.tableName);
+    if (location.enumName) {
+      setSelectedEnum(location.enumName);
+    }
+    setFocusLocation(location);
+  }, []);
+
+  const commitTables = useCallback((nextTables: Tables, sourceTable?: string, location?: EditLocation) => {
+    setTables((current) => {
+      const syncedTables = syncTables(current, nextTables, { sourceTable });
+      if (tablesEqual(current, syncedTables)) return current;
+      const entry: HistoryEntry = {
+        beforeTables: cloneTables(current),
+        afterTables: cloneTables(syncedTables),
+        location
+      };
+      const undo = [...historyRef.current.undo, entry].slice(-HISTORY_LIMIT);
+      historyRef.current = { undo, redo: [] };
+      markChanged();
+      return syncedTables;
+    });
+  }, [markChanged]);
+
+  const applyHistoryTables = useCallback((nextTables: Tables, location?: EditLocation) => {
+    setTables(cloneTables(nextTables));
+    markChanged();
+    navigateToEdit(location);
+  }, [markChanged, navigateToEdit]);
+
+  const undoTables = useCallback(() => {
+    const entry = historyRef.current.undo.at(-1);
+    if (!entry) return;
+    historyRef.current = {
+      undo: historyRef.current.undo.slice(0, -1),
+      redo: [...historyRef.current.redo, entry]
+    };
+    applyHistoryTables(entry.beforeTables, entry.location);
+  }, [applyHistoryTables]);
+
+  const redoTables = useCallback(() => {
+    const entry = historyRef.current.redo.at(-1);
+    if (!entry) return;
+    historyRef.current = {
+      undo: [...historyRef.current.undo, entry],
+      redo: historyRef.current.redo.slice(0, -1)
+    };
+    applyHistoryTables(entry.afterTables, entry.location);
+  }, [applyHistoryTables]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +210,29 @@ export function App() {
     window.addEventListener('wheel', preventHorizontalNavigation, { passive: false });
     return () => window.removeEventListener('wheel', preventHorizontalNavigation);
   }, []);
+
+  useEffect(() => {
+    function handleUndoRedoShortcut(event: KeyboardEvent) {
+      if (!sessionId || !isUndoRedoShortcut(event)) return;
+      const target = event.target;
+      const activeElement = document.activeElement;
+      const hasTableFocus =
+        target instanceof Element && target.closest('.table-panel') ||
+        activeElement instanceof Element && activeElement.closest('.table-panel') ||
+        schemaEditorHasFocusRef.current;
+      if (!hasTableFocus) return;
+      if (target instanceof Element && isTextEditingTarget(target)) return;
+      event.preventDefault();
+      if (isRedoShortcut(event)) {
+        redoTables();
+      } else {
+        undoTables();
+      }
+    }
+
+    window.addEventListener('keydown', handleUndoRedoShortcut, true);
+    return () => window.removeEventListener('keydown', handleUndoRedoShortcut, true);
+  }, [redoTables, sessionId, undoTables]);
 
   useEffect(() => {
     const readyMessage = {
@@ -214,6 +309,7 @@ export function App() {
   }, [diagnostics, generated, loadYaml, generateCurrentYaml, schemaName, sessionId]);
 
   function applyImportResponse(response: ImportResponse, yaml: string) {
+    resetHistory();
     setYamlInput(yaml);
     setSessionId(response.session_id);
     setSchemaName(response.schema_name);
@@ -254,6 +350,7 @@ export function App() {
         setPreviewGenerated(response);
       }
       setDiagnostics(response.diagnostics);
+      resetHistory();
       return response;
     } finally {
       setBusy(false);
@@ -268,18 +365,14 @@ export function App() {
     await generateCurrentYaml({ updatePreview: true });
   }
 
-  const updateRows = useCallback((tableName: string, rows: Row[]) => {
-    setTables((current) => syncTables(current, { ...current, [tableName]: rows }, { sourceTable: tableName }));
-    setGenerated(null);
-    window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
-  }, [schemaName, sessionId]);
-  const updateTables = useCallback((nextTables: Tables, sourceTable?: string) => {
-    setTables((current) => syncTables(current, nextTables, { sourceTable }));
-    setGenerated(null);
-    window.parent?.postMessage({ type: 'dhtb.changed', sessionId, schemaName }, '*');
-  }, [schemaName, sessionId]);
+  const updateRows = useCallback((tableName: string, rows: Row[], location?: EditLocation) => {
+    commitTables({ ...tables, [tableName]: rows }, tableName, location ?? { tableName });
+  }, [commitTables, tables]);
+  const updateTables = useCallback((nextTables: Tables, sourceTable?: string, location?: EditLocation) => {
+    commitTables(nextTables, sourceTable, location ?? (sourceTable ? { tableName: sourceTable } : undefined));
+  }, [commitTables]);
   const updateActiveTableRows = useCallback(
-    (rows: Row[]) => updateRows(activeTable, rows),
+    (rows: Row[], location?: EditLocation) => updateRows(activeTable, rows, location ?? { tableName: activeTable }),
     [activeTable, updateRows]
   );
 
@@ -344,7 +437,15 @@ export function App() {
         </div>
 
         <div className={`split-workspace ${maximizedPane ? `max-${maximizedPane}` : ''}`}>
-        <div className="panel table-panel">
+        <div
+          className="panel table-panel"
+          onFocusCapture={() => {
+            schemaEditorHasFocusRef.current = true;
+          }}
+          onMouseDownCapture={() => {
+            schemaEditorHasFocusRef.current = true;
+          }}
+        >
           <div className="panel-heading">
             <h2>{activeTable === ENUM_WORKSPACE ? 'Enum workspace' : activeTable ? activeTable.replaceAll('_', ' ') : 'Tables'}</h2>
             <div className="heading-actions">
@@ -365,6 +466,7 @@ export function App() {
               selectedEnum={selectedEnum}
               onSelectEnum={setSelectedEnum}
               onChange={updateTables}
+              focusLocation={focusLocation}
             />
           ) : activeTable && tables[activeTable] ? (
             <EditableTable
@@ -373,6 +475,7 @@ export function App() {
               onChange={updateActiveTableRows}
               enumNames={enumNames}
               onOpenEnum={openEnum}
+              focusLocation={focusLocation}
             />
           ) : (
             <div className="empty-state">
@@ -381,7 +484,15 @@ export function App() {
           )}
         </div>
 
-        <div className="panel preview-panel">
+        <div
+          className="panel preview-panel"
+          onFocusCapture={() => {
+            schemaEditorHasFocusRef.current = false;
+          }}
+          onMouseDownCapture={() => {
+            schemaEditorHasFocusRef.current = false;
+          }}
+        >
           <div className="panel-heading">
             <h2>Preview</h2>
             <div className="heading-actions">
@@ -449,13 +560,15 @@ function EditableTable({
   rows,
   onChange,
   enumNames = new Set(),
-  onOpenEnum
+  onOpenEnum,
+  focusLocation
 }: {
   tableName: string;
   rows: Row[];
-  onChange: (rows: Row[]) => void;
+  onChange: (rows: Row[], location?: EditLocation) => void;
   enumNames?: Set<string>;
   onOpenEnum?: (enumName: string) => void;
+  focusLocation?: EditLocation | null;
 }) {
   const columns = useMemo(() => {
     const names = new Set<string>();
@@ -492,11 +605,13 @@ function EditableTable({
     <div className="table-wrap">
       <DataGrid
         key={`${tableName}:${columns.join('\u001f')}`}
+        tableName={tableName}
         rows={rows}
         onChange={onChange}
         columns={columns}
         pinnedColumns={tableName === 'slots' ? SLOT_PINNED_COLUMNS : undefined}
         cellMeta={cellMeta}
+        focusLocation={focusLocation}
       />
       <button className="compact" onClick={addRow}>
         Add row
@@ -509,12 +624,14 @@ function EnumWorkspace({
   tables,
   selectedEnum,
   onSelectEnum,
-  onChange
+  onChange,
+  focusLocation
 }: {
   tables: Tables;
   selectedEnum: string;
   onSelectEnum: (enumName: string) => void;
-  onChange: (tables: Tables, sourceTable?: string) => void;
+  onChange: (tables: Tables, sourceTable?: string, location?: EditLocation) => void;
+  focusLocation?: EditLocation | null;
 }) {
   const [search, setSearch] = useState('');
   const [selectedValue, setSelectedValue] = useState('');
@@ -556,8 +673,8 @@ function EnumWorkspace({
     }
   }, [selectedValue, visibleValueRows]);
 
-  const patchTables = useCallback((nextTables: Tables, sourceTable?: string) => {
-    onChange(nextTables, sourceTable);
+  const patchTables = useCallback((nextTables: Tables, sourceTable?: string, location?: EditLocation) => {
+    onChange(nextTables, sourceTable, location);
   }, [onChange]);
 
   function updateEnumField(column: string, value: string) {
@@ -566,7 +683,7 @@ function EnumWorkspace({
       enums: enumRows.map((row) =>
         cellText(row.enum) === effectiveEnum ? { ...row, [column]: value } : row
       )
-    }, 'enums');
+    }, 'enums', { tableName: ENUM_WORKSPACE, column, enumName: effectiveEnum });
   }
 
   function renameEnum(nextName: string) {
@@ -583,7 +700,7 @@ function EnumWorkspace({
       slots: slotRows.map((row) =>
         cellText(row.range) === effectiveEnum ? { ...row, range: cleanName } : row
       )
-    }, 'enums');
+    }, 'enums', { tableName: ENUM_WORKSPACE, column: 'enum', enumName: cleanName });
     onSelectEnum(cleanName);
   }
 
@@ -596,7 +713,12 @@ function EnumWorkspace({
         ...valueRows,
         { enum: effectiveEnum, permissible_value: value, text: value, description: '', meaning: '', comments: '' }
       ]
-    }, 'permissible_values');
+    }, 'permissible_values', {
+      tableName: ENUM_WORKSPACE,
+      rowIndex: visibleValueRows.length,
+      column: 'permissible_value',
+      enumName: effectiveEnum
+    });
     setSelectedValue(value);
   }
 
@@ -607,7 +729,12 @@ function EnumWorkspace({
     patchTables({
       ...tables,
       permissible_values: [...valueRows, { ...source, permissible_value: value, text: value, enum: effectiveEnum }]
-    }, 'permissible_values');
+    }, 'permissible_values', {
+      tableName: ENUM_WORKSPACE,
+      rowIndex: visibleValueRows.length,
+      column: 'permissible_value',
+      enumName: effectiveEnum
+    });
     setSelectedValue(value);
   }
 
@@ -618,23 +745,28 @@ function EnumWorkspace({
       permissible_values: valueRows.filter(
         (row) => !(cellText(row.enum) === effectiveEnum && cellText(row.permissible_value) === selectedValue)
       )
-    }, 'permissible_values');
+    }, 'permissible_values', {
+      tableName: ENUM_WORKSPACE,
+      rowIndex: Math.max(0, selectedVisibleRowIndex),
+      column: 'permissible_value',
+      enumName: effectiveEnum
+    });
   }
 
-  const updateValues = useCallback((nextVisibleRows: Row[]) => {
+  const updateValues = useCallback((nextVisibleRows: Row[], location?: EditLocation) => {
     patchTables({
       ...tables,
       permissible_values: valueRows.map((row, index) => {
         const visibleIndex = visibleValueRows.findIndex(({ sourceIndex }) => sourceIndex === index);
         return visibleIndex === -1 ? row : { ...row, ...nextVisibleRows[visibleIndex] };
       })
-    }, 'permissible_values');
+    }, 'permissible_values', { ...location, tableName: ENUM_WORKSPACE, enumName: effectiveEnum });
     const selectedIndex = visibleValueRows.findIndex(({ row }) => cellText(row.permissible_value) === selectedValue);
     if (selectedIndex !== -1) {
       const nextSelectedValue = cellText(nextVisibleRows[selectedIndex]?.permissible_value);
       setSelectedValue((current) => (current === nextSelectedValue ? current : nextSelectedValue));
     }
-  }, [patchTables, selectedValue, tables, valueRows, visibleValueRows]);
+  }, [effectiveEnum, patchTables, selectedValue, tables, valueRows, visibleValueRows]);
   const selectVisibleValueRow = useCallback(
     (rowIndex: number | null) => {
       const nextSelectedValue = rowIndex === null ? '' : cellText(visibleValueRows[rowIndex]?.row.permissible_value);
@@ -669,20 +801,20 @@ function EnumWorkspace({
         <div className="enum-meta">
           <label>
             Name
-            <input value={effectiveEnum} onChange={(event) => renameEnum(event.target.value)} />
+            <CommitInput value={effectiveEnum} onCommit={renameEnum} />
           </label>
           <label>
             Description
-            <input
+            <CommitInput
               value={cellText(enumRow?.description)}
-              onChange={(event) => updateEnumField('description', event.target.value)}
+              onCommit={(value) => updateEnumField('description', value)}
             />
           </label>
           <label>
             Annotations
-            <input
+            <CommitInput
               value={cellText(enumRow?.annotations)}
-              onChange={(event) => updateEnumField('annotations', event.target.value)}
+              onCommit={(value) => updateEnumField('annotations', value)}
             />
           </label>
         </div>
@@ -706,12 +838,14 @@ function EnumWorkspace({
         <div className="enum-values table-wrap">
           <DataGrid
             key={`${effectiveEnum}:${ENUM_VALUE_COLUMNS.join('\u001f')}`}
+            tableName={ENUM_WORKSPACE}
             columns={ENUM_VALUE_COLUMNS}
             enableRowOps={false}
             rows={visibleValueGridRows}
             onChange={updateValues}
             onRowSelect={selectVisibleValueRow}
             selectedRowIndex={selectedVisibleRowIndex}
+            focusLocation={focusLocation?.tableName === ENUM_WORKSPACE ? focusLocation : null}
           />
         </div>
       </section>
@@ -750,6 +884,37 @@ function enumRangeRenderer(enumNames: Set<string>, onOpenEnum: (enumName: string
     });
     td.append(label, button);
   };
+}
+
+function CommitInput({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function commit() {
+    if (draft !== value) {
+      onCommit(draft);
+    }
+  }
+
+  return (
+    <input
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commit();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          setDraft(value);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
 }
 
 function Diagnostics({ diagnostics }: { diagnostics: Diagnostic[] }) {
@@ -1023,4 +1188,34 @@ function normalizeSchemaForPreview(schema: Record<string, unknown>): Record<stri
   }
 
   return nextSchema;
+}
+
+function isUndoRedoShortcut(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  return key === 'z' || key === 'y';
+}
+
+function isRedoShortcut(event: KeyboardEvent) {
+  const key = event.key.toLowerCase();
+  return key === 'y' || (key === 'z' && event.shiftKey);
+}
+
+function isTextEditingTarget(target: Element) {
+  if (target instanceof HTMLTextAreaElement && target.classList.contains('handsontableInput')) {
+    return false;
+  }
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  return false;
+}
+
+function cloneTables(tables: Tables): Tables {
+  return Object.fromEntries(
+    Object.entries(tables).map(([name, rows]) => [name, rows.map((row) => ({ ...row }))])
+  );
+}
+
+function tablesEqual(left: Tables, right: Tables) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

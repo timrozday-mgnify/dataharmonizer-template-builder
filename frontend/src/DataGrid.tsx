@@ -4,7 +4,7 @@ import 'handsontable/styles/handsontable.css';
 import 'handsontable/styles/ht-theme-main.css';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-import type { Row } from './types';
+import type { EditLocation, Row } from './types';
 
 registerAllModules();
 
@@ -22,27 +22,27 @@ const COMPACT_MAX_COLUMN_WIDTH = 220;
 const ROW_CONTEXT_MENU: Handsontable.plugins.ContextMenu.PredefinedMenuItemKey[] = [
   'row_above',
   'row_below',
-  'remove_row',
-  '---------',
-  'undo',
-  'redo'
+  'remove_row'
 ];
 type CellMetaFactory = (rowIndex: number, columnKey: string) => Partial<Handsontable.CellMeta> | undefined;
 
 type DataGridProps = {
+  tableName: string;
   rows: Row[];
-  onChange: (rows: Row[]) => void;
+  onChange: (rows: Row[], location?: EditLocation) => void;
   columns?: string[];
   pinnedColumns?: string[];
   enableRowOps?: boolean;
   onRowSelect?: (rowIndex: number | null) => void;
   selectedRowIndex?: number | null;
   cellMeta?: CellMetaFactory;
+  focusLocation?: EditLocation | null;
 };
 
 export type HotTableRef = { hotInstance: Handsontable.Core | null };
 
 export function DataGrid({
+  tableName,
   rows,
   onChange,
   columns,
@@ -50,7 +50,8 @@ export function DataGrid({
   enableRowOps = true,
   onRowSelect,
   selectedRowIndex,
-  cellMeta
+  cellMeta,
+  focusLocation
 }: DataGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const hotRef = useRef<Handsontable.Core | null>(null);
@@ -85,9 +86,9 @@ export function DataGrid({
     [orderedColumns, rows]
   );
 
-  const emitChange = useCallback(() => {
+  const emitChange = useCallback((location?: EditLocation) => {
     const sourceData = hotRef.current?.getSourceData() ?? [];
-    onChange(copyRows(sourceData as Row[]));
+    onChange(copyRows(sourceData as Row[]), location);
   }, [onChange]);
   const fixedColumnsStart = useMemo(
     () => pinnedColumns.filter((column) => orderedColumns.includes(column)).length,
@@ -105,10 +106,10 @@ export function DataGrid({
   const afterChange = useCallback(
     (_changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
       if (!applyingSettings.current && source !== 'loadData') {
-        emitChange();
+        emitChange(locationFromChange(tableName, _changes, orderedColumns));
       }
     },
-    [emitChange]
+    [emitChange, orderedColumns, tableName]
   );
   const afterSelectionEnd = useCallback(
     (row: number) => {
@@ -155,6 +156,7 @@ export function DataGrid({
       wordWrap: false,
       fillHandle: true,
       multiColumnSorting: true,
+      undo: false,
       fixedColumnsStart,
       viewportColumnRenderingOffset: 8,
       contextMenu,
@@ -164,9 +166,12 @@ export function DataGrid({
       modifyColWidth,
       afterColumnResize,
       afterChange,
-      afterCreateRow: emitChange,
-      afterRemoveRow: emitChange,
-      afterRowMove: emitChange,
+      afterCreateRow: (index) => emitChange({ tableName, rowIndex: index }),
+      afterRemoveRow: (index) => emitChange({ tableName, rowIndex: index }),
+      afterRowMove: (movedRows, finalIndex) => {
+        const rowIndex = typeof finalIndex === 'number' ? finalIndex : movedRows[0];
+        emitChange({ tableName, rowIndex });
+      },
       afterSelectionEnd,
       cells
     }),
@@ -183,7 +188,8 @@ export function DataGrid({
       hotColumns,
       measuredColumnWidths,
       modifyColWidth,
-      rows
+      rows,
+      tableName
     ]
   );
 
@@ -219,11 +225,33 @@ export function DataGrid({
     applyingSettings.current = false;
   }, [rows]);
 
+  useEffect(() => {
+    if (!hotRef.current || focusLocation?.tableName !== tableName) return;
+    const rowIndex = focusLocation.rowIndex ?? 0;
+    const columnIndex = focusLocation.column ? orderedColumns.indexOf(focusLocation.column) : 0;
+    if (rowIndex < 0 || columnIndex < 0) return;
+    hotRef.current.selectCell(rowIndex, columnIndex);
+    hotRef.current.scrollViewportTo(rowIndex, columnIndex);
+    hotRef.current.render();
+  }, [focusLocation, orderedColumns, tableName, rows]);
+
   return (
     <div className="hot-grid-wrap">
       <div ref={containerRef} style={HOT_TABLE_STYLE} />
     </div>
   );
+}
+
+function locationFromChange(
+  tableName: string,
+  changes: Handsontable.CellChange[] | null,
+  columns: string[]
+): EditLocation | undefined {
+  const firstChange = changes?.[0];
+  if (!firstChange) return undefined;
+  const [rowIndex, prop] = firstChange;
+  const column = typeof prop === 'string' ? prop : typeof prop === 'number' ? columns[prop] : undefined;
+  return { tableName, rowIndex, column };
 }
 
 function copyRows(rows: Row[]): Row[] {

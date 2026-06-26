@@ -11,6 +11,13 @@ export type Row = Record<string, string | number | boolean | null | undefined>;
 
 export type Tables = Record<string, Row[]>;
 
+export type EditLocation = {
+  tableName: string;
+  rowIndex?: number;
+  column?: string;
+  enumName?: string;
+};
+
 export type ImportResponse = {
   session_id: string;
   schema_name: string;
