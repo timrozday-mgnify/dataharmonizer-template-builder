@@ -712,3 +712,8 @@ table:not(.htCore) td input:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+#data-harmonizer-grid .handsontable .wtBorder.current,
+#data-harmonizer-grid .handsontable .wtBorder.area {
+  background-color: var(--accent) !important;
+}

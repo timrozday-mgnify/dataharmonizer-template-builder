@@ -122,6 +122,28 @@ slots:
     assert slot["Annotation: source"] == "MIMICC"
 
 
+def test_schema_to_tables_includes_blank_default_slot_annotation_columns() -> None:
+    schema = linkml_io.load_yaml_text(
+        """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    range: string
+"""
+    )
+
+    editable_tables = schema_to_tables(schema)
+    slot = editable_tables["slots"][0]
+
+    assert slot["Annotation: id"] == ""
+    assert slot["Annotation: default_unit"] == ""
+
+
 def test_tables_to_schema_uses_dynamic_slot_annotation_columns() -> None:
     schema = linkml_io.load_yaml_text(SAMPLE_SCHEMA)
     editable_tables = schema_to_tables(schema)

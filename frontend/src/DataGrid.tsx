@@ -136,7 +136,6 @@ export function DataGrid({
   );
   const gridSettings = useMemo<Handsontable.GridSettings>(
     () => ({
-      data: copyRows(rows),
       dataSchema,
       columns: hotColumns,
       colHeaders: true,
@@ -191,7 +190,10 @@ export function DataGrid({
   useEffect(() => {
     if (!containerRef.current) return undefined;
     applyingSettings.current = true;
-    const hot = new Handsontable.Core(containerRef.current, gridSettings);
+    const hot = new Handsontable.Core(containerRef.current, {
+      ...gridSettings,
+      data: copyRows(rows)
+    });
     hot.init();
     applyingSettings.current = false;
     hotRef.current = hot;
@@ -207,6 +209,15 @@ export function DataGrid({
     hotRef.current.updateSettings(gridSettings, false);
     applyingSettings.current = false;
   }, [gridSettings]);
+
+  useEffect(() => {
+    if (!hotRef.current) return;
+    applyingSettings.current = true;
+    hotRef.current.loadData(copyRows(rows));
+    hotRef.current.render();
+    refreshHotDimensions(hotRef.current);
+    applyingSettings.current = false;
+  }, [rows]);
 
   return (
     <div className="hot-grid-wrap">
@@ -246,4 +257,8 @@ function columnMaxWidth(column: string): number {
 
 function cellText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
+}
+
+function refreshHotDimensions(hot: Handsontable.Core) {
+  (hot as Handsontable.Core & { refreshDimensions?: () => void }).refreshDimensions?.();
 }

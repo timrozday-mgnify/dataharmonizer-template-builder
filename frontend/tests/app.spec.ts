@@ -41,6 +41,29 @@ slots:
       default_unit: mL
 `;
 
+const TWO_SLOT_ANNOTATED_SCHEMA = `id: https://example.org/annotation-sync-demo
+name: annotation_sync_demo
+imports:
+- linkml:types
+prefixes:
+  linkml: https://w3id.org/linkml/
+default_range: string
+classes:
+  Demo:
+    slots:
+    - sample_id
+    - sample_weight
+slots:
+  sample_id:
+    title: Sample ID
+    range: string
+    annotations:
+      default_unit: mL
+  sample_weight:
+    title: Sample Weight
+    range: string
+`;
+
 async function importDemoSchema(page: Page) {
   await page.getByRole('button', { name: 'Import YAML' }).first().click();
   await expect(page.getByRole('dialog', { name: 'Import YAML' })).toBeVisible();
@@ -171,6 +194,43 @@ test('syncs annotation table edits into generated slot annotations', async ({ pa
   await expect(page.locator('.generated-output')).toContainText('uL');
 });
 
+test('keeps row hit testing aligned after slot annotation sync inserts rows', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Import YAML' }).first().click();
+  await page.locator('.popup-textarea').fill(TWO_SLOT_ANNOTATED_SCHEMA);
+  await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
+  await expect(page.locator('.schema-name')).toHaveText('annotation_sync_demo');
+
+  await fillSlotAnnotationCell(page, 'mL', 1, 'g');
+  await page.getByRole('button', { name: 'annotations' }).click();
+
+  const syncedRow = page.locator('.table-panel .ht_master .htCore tbody tr').filter({ hasText: 'sample_weight' }).first();
+  await expect(syncedRow).toContainText('g');
+  const targetCell = syncedRow.locator('td', { hasText: 'sample_weight' }).filter({ visible: true }).first();
+  await clickNearTopEdge(targetCell, page);
+
+  await expect(page.locator('.table-panel .ht_master .htCore tbody td.current').first()).toContainText('sample_weight');
+});
+
+test('keeps editor table visible after repeated table switches', async ({ page }) => {
+  const browserMessages: string[] = [];
+  page.on('console', (message) => browserMessages.push(`${message.type()}: ${message.text()}`));
+  page.on('pageerror', (error) => browserMessages.push(`pageerror: ${error.message}`));
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  for (const tableName of ['annotations', 'enums', 'permissible values', 'slots', 'classes', 'slots', 'annotations', 'enums']) {
+    await page.getByRole('button', { name: tableName }).click();
+    await expect(page.locator('.table-panel')).toBeVisible();
+  }
+
+  await expectHotGridVisible(page.locator('.table-panel .hot-grid-wrap').first());
+  expect(browserMessages.join('\n')).not.toContain('TD or TH was expected');
+});
+
 test('keeps focus while typing in editable grid cells', async ({ page }) => {
   await routeStandaloneFrontendConfig(page);
   await page.goto('/');
@@ -249,6 +309,23 @@ test('allows text entry in the DataHarmonizer preview grid', async ({ page }) =>
 
   await expect(firstDataCell).toContainText('preview_value');
   expect(Date.now() - startedAt).toBeLessThan(2000);
+});
+
+test('shows a selection border in the DataHarmonizer preview grid', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.locator('#data-harmonizer-grid')).toContainText('Sample ID');
+
+  const firstDataCell = page
+    .locator('#data-harmonizer-grid .ht_master .htCore tbody tr')
+    .first()
+    .locator('td')
+    .first();
+  await firstDataCell.click();
+  await expect(page.locator('#data-harmonizer-grid .wtBorder.current').filter({ visible: true }).first()).toBeVisible();
 });
 
 test('runs native DataHarmonizer validation in the preview grid', async ({ page }) => {
@@ -358,6 +435,38 @@ async function replaceHotCell(cell: Locator, value: string) {
   await cell.page().keyboard.press('ControlOrMeta+A');
   await cell.page().keyboard.type(value);
   await cell.page().keyboard.press('Enter');
+}
+
+async function fillSlotAnnotationCell(page: Page, visibleAnchorText: string, targetRowIndex: number, value: string) {
+  await page.locator('.table-panel .ht_master .wtHolder').first().evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  const anchorCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: visibleAnchorText })
+    .filter({ visible: true })
+    .first();
+  await expect(anchorCell).toBeVisible();
+  const anchorBox = await anchorCell.boundingBox();
+  if (!anchorBox) throw new Error('Could not locate annotation anchor cell.');
+
+  const targetRow = page.locator('.table-panel .ht_master .htCore tbody tr').nth(targetRowIndex);
+  const targetColumnIndex = await targetRow.locator('td').evaluateAll((cells, anchorCenterX) => {
+    return cells.findIndex((cell) => {
+      const rect = cell.getBoundingClientRect();
+      return rect.left <= anchorCenterX && anchorCenterX <= rect.right;
+    });
+  }, anchorBox.x + anchorBox.width / 2);
+  if (targetColumnIndex < 0) throw new Error('Could not locate target annotation cell.');
+  await replaceHotCell(targetRow.locator('td').nth(targetColumnIndex), value);
+}
+
+async function clickNearTopEdge(cell: Locator, page: Page) {
+  const box = await cell.boundingBox();
+  if (!box) throw new Error('Could not determine cell coordinates.');
+  await page.mouse.click(box.x + box.width / 2, box.y + 1);
 }
 
 async function expectHotGridVisible(grid: Locator) {

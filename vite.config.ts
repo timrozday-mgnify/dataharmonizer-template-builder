@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 
+const backendPort = process.env.DHTB_BACKEND_PORT ?? '8765';
+
 export default defineConfig({
   plugins: [
     react(),
@@ -149,7 +151,6 @@ export default defineConfig({
               renderAllRows: false,
               beforeChange: () => undefined,
               afterChange: () => undefined,
-              afterSelection: () => undefined,
             },`
             ),
           map: null
@@ -168,7 +169,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8765'
+      '/api': `http://127.0.0.1:${backendPort}`
     }
   },
   optimizeDeps: {

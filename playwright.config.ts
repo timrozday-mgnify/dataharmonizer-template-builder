@@ -6,26 +6,28 @@ import fs from 'node:fs';
 // — nothing to spawn there, unlike the two-process dev setup below.
 const composeUrl = process.env.COMPOSE_TEST_URL;
 const python = fs.existsSync('.venv/bin/python') ? '.venv/bin/python' : 'python';
+const backendPort = process.env.DHTB_BACKEND_PORT ?? '8765';
+const frontendPort = process.env.DHTB_FRONTEND_PORT ?? '5173';
 
 export default defineConfig({
   testDir: './frontend/tests',
   timeout: 30_000,
   use: {
-    baseURL: composeUrl ?? 'http://127.0.0.1:5173',
+    baseURL: composeUrl ?? `http://127.0.0.1:${frontendPort}`,
     trace: 'on-first-retry'
   },
   webServer: composeUrl
     ? undefined
     : [
         {
-          command: `env PYTHONPATH=src:../linkml-lib/src ${python} manage.py runserver 127.0.0.1:8765 --noreload`,
-          url: 'http://127.0.0.1:8765/api/health',
+          command: `env PYTHONPATH=src:../linkml-lib/src ${python} manage.py runserver 127.0.0.1:${backendPort} --noreload`,
+          url: `http://127.0.0.1:${backendPort}/api/health`,
           reuseExistingServer: !process.env.CI,
           timeout: 120_000
         },
         {
-          command: 'npm run dev -- --port 5173',
-          url: 'http://127.0.0.1:5173',
+          command: `npm run dev -- --port ${frontendPort}`,
+          url: `http://127.0.0.1:${frontendPort}`,
           reuseExistingServer: !process.env.CI,
           timeout: 120_000
         }

@@ -491,6 +491,7 @@ function EditableTable({
   return (
     <div className="table-wrap">
       <DataGrid
+        key={`${tableName}:${columns.join('\u001f')}`}
         rows={rows}
         onChange={onChange}
         columns={columns}
@@ -704,6 +705,7 @@ function EnumWorkspace({
         </div>
         <div className="enum-values table-wrap">
           <DataGrid
+            key={`${effectiveEnum}:${ENUM_VALUE_COLUMNS.join('\u001f')}`}
             columns={ENUM_VALUE_COLUMNS}
             enableRowOps={false}
             rows={visibleValueGridRows}
@@ -809,6 +811,7 @@ function Preview({
             ? contextRef.current
             : new AppContext({ template_path: `local/${className}` });
         contextRef.current = context as PreviewAppContext;
+        destroyPreviewHotInstances(contextRef.current);
         await context.reload(`local/${className}`, null, schema);
         const toolbarRoot = document.querySelector('#data-harmonizer-toolbar');
         const footerRoot = document.querySelector('#data-harmonizer-footer');
@@ -837,6 +840,7 @@ function Preview({
 
     return () => {
       cancelled = true;
+      destroyPreviewHotInstances(contextRef.current);
     };
   }, [generated]);
 
@@ -874,8 +878,18 @@ function Preview({
 }
 
 type PreviewAppContext = AppContext & {
+  dhs?: Record<string, { hot?: { destroy: () => void } | null }>;
   getLocaleData: (template?: unknown) => unknown;
 };
+
+function destroyPreviewHotInstances(context: PreviewAppContext | null) {
+  if (!context?.dhs) return;
+  for (const dh of Object.values(context.dhs)) {
+    if (!dh?.hot) continue;
+    dh.hot.destroy();
+    dh.hot = null;
+  }
+}
 
 function cellText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);

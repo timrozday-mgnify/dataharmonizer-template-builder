@@ -33,6 +33,7 @@ def schema_to_tables(schema: Mapping[str, Any]) -> TableRows:
     """Return editable tables with all slot annotations projected as columns."""
     tables = _linkml_schema_to_tables(schema)
     _project_slot_annotation_columns(tables)
+    _ensure_slot_annotation_columns(tables)
     return tables
 
 
@@ -73,6 +74,13 @@ def _project_slot_annotation_columns(tables: TableRows) -> None:
         key = _normalized_annotation_key(_cell(row.get("key")))
         if slot_row is not None and key:
             slot_row[_annotation_column_for_key(key)] = row.get("value", "")
+
+
+def _ensure_slot_annotation_columns(tables: TableRows) -> None:
+    columns = _slot_annotation_columns(tables)
+    for row in tables.get(SLOT_TABLE, []):
+        for column in columns:
+            row.setdefault(column, "")
 
 
 def _tables_with_slot_annotation_rows(tables: Mapping[str, list[JsonDict]]) -> TableRows:
