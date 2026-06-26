@@ -17,13 +17,10 @@ ENUM_TABLE = "enums"
 PERMISSIBLE_VALUE_TABLE = "permissible_values"
 ANNOTATION_TABLE = "annotations"
 
-SLOT_ANNOTATION_COLUMNS = {
-    "annotation_id": "id",
-    "annotation_default_unit": "default_unit",
-}
+SLOT_ANNOTATION_COLUMN_PREFIX = "annotation_"
 
 LEGACY_SLOT_ANNOTATION_COLUMNS = {
-    "mimicc_default_unit": "annotation_default_unit",
+    "mimicc_default_unit": "default_unit",
 }
 
 LEGACY_SLOT_ROW_COLUMNS = {
@@ -71,23 +68,25 @@ def _sync_slot_annotations(tables: TableRows, source_table: str | None) -> None:
     }
     _migrate_legacy_slot_row_columns(slot_rows_by_name.values())
     _migrate_legacy_slot_annotations(annotation_rows)
-    _populate_legacy_slot_annotation_columns(annotation_rows, slot_rows_by_name)
 
     if source_table != ANNOTATION_TABLE:
         for slot_name, slot_row in slot_rows_by_name.items():
-            for row_key, annotation_key in SLOT_ANNOTATION_COLUMNS.items():
+            for row_key in _slot_annotation_columns(slot_row):
+                annotation_key = _annotation_key_for_column(row_key)
                 value = _cell(slot_row.get(row_key))
                 _upsert_annotation(annotation_rows, "slot", slot_name, annotation_key, value)
+    else:
+        for slot_row in slot_rows_by_name.values():
+            for row_key in _slot_annotation_columns(slot_row):
+                slot_row[row_key] = ""
 
     for row in annotation_rows:
         if _cell(row.get("element_type")) != "slot":
             continue
         slot_row = slot_rows_by_name.get(_cell(row.get("element")))
-        row_key = _row_key_for_annotation(_cell(row.get("key")))
+        row_key = _annotation_column_for_key(_cell(row.get("key")))
         if slot_row is not None and row_key:
             slot_row[row_key] = row.get("value", "")
-
-    _populate_legacy_slot_annotation_columns(annotation_rows, slot_rows_by_name)
 
 
 def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[Diagnostic]:
@@ -221,39 +220,13 @@ def _upsert_annotation(
         match["value"] = value
 
 
-def _row_key_for_annotation(annotation_key: str) -> str:
-    for row_key, key in SLOT_ANNOTATION_COLUMNS.items():
-        if key == annotation_key:
-            return row_key
-    return ""
-
-
-def _annotation_value(
-    rows: list[JsonDict],
-    element_type: str,
-    element: str,
-    key: str,
-) -> Any:
-    match = next(
-        (
-            row
-            for row in rows
-            if _cell(row.get("element_type")) == element_type
-            and _cell(row.get("element")) == element
-            and _cell(row.get("key")) == key
-        ),
-        None,
-    )
-    return "" if match is None else match.get("value", "")
-
-
 def _migrate_legacy_slot_annotations(rows: list[JsonDict]) -> None:
     for row in rows:
         if _cell(row.get("element_type")) != "slot":
             continue
-        row_key = LEGACY_SLOT_ANNOTATION_COLUMNS.get(_cell(row.get("key")))
-        if row_key:
-            row["key"] = SLOT_ANNOTATION_COLUMNS[row_key]
+        key = LEGACY_SLOT_ANNOTATION_COLUMNS.get(_cell(row.get("key")))
+        if key:
+            row["key"] = key
 
 
 def _migrate_legacy_slot_row_columns(rows: Iterable[JsonDict]) -> None:
@@ -262,19 +235,6 @@ def _migrate_legacy_slot_row_columns(rows: Iterable[JsonDict]) -> None:
             if not _cell(row.get(row_key)) and _cell(row.get(legacy_key)):
                 row[row_key] = row[legacy_key]
             row.pop(legacy_key, None)
-
-
-def _populate_legacy_slot_annotation_columns(
-    annotation_rows: list[JsonDict],
-    slot_rows_by_name: dict[str, JsonDict],
-) -> None:
-    for slot_name, slot_row in slot_rows_by_name.items():
-        for legacy_key, row_key in LEGACY_SLOT_ANNOTATION_COLUMNS.items():
-            if _cell(slot_row.get(row_key)):
-                continue
-            legacy_value = _annotation_value(annotation_rows, "slot", slot_name, legacy_key)
-            if legacy_value:
-                slot_row[row_key] = legacy_value
 
 
 def _parse_mapping_cell(value: Any) -> tuple[dict[str, Any], bool]:
@@ -291,3 +251,21 @@ def _parse_mapping_cell(value: Any) -> tuple[dict[str, Any], bool]:
 
 def _cell(value: Any) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _slot_annotation_columns(row: Mapping[str, Any]) -> list[str]:
+    return [
+        key
+        for key in row
+        if key.startswith(SLOT_ANNOTATION_COLUMN_PREFIX) and key != SLOT_ANNOTATION_COLUMN_PREFIX
+    ]
+
+
+def _annotation_column_for_key(key: str) -> str:
+    normalized_key = LEGACY_SLOT_ANNOTATION_COLUMNS.get(key, key)
+    return f"{SLOT_ANNOTATION_COLUMN_PREFIX}{normalized_key}" if normalized_key else ""
+
+
+def _annotation_key_for_column(column: str) -> str:
+    key = column.removeprefix(SLOT_ANNOTATION_COLUMN_PREFIX)
+    return LEGACY_SLOT_ANNOTATION_COLUMNS.get(key, key)

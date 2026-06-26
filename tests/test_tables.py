@@ -95,6 +95,44 @@ def test_tables_to_schema_preserves_slot_usage_and_enums() -> None:
     assert "ready" in rebuilt["enums"]["StatusMenu"]["permissible_values"]
 
 
+def test_schema_to_tables_projects_all_slot_annotations() -> None:
+    schema = linkml_io.load_yaml_text(
+        """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    annotations:
+      id: sample_id
+      ena_allowed_units: mL; L
+      source: MIMICC
+"""
+    )
+
+    editable_tables = schema_to_tables(schema)
+    slot = editable_tables["slots"][0]
+
+    assert slot["annotation_id"] == "sample_id"
+    assert slot["annotation_ena_allowed_units"] == "mL; L"
+    assert slot["annotation_source"] == "MIMICC"
+
+
+def test_tables_to_schema_uses_dynamic_slot_annotation_columns() -> None:
+    schema = linkml_io.load_yaml_text(SAMPLE_SCHEMA)
+    editable_tables = schema_to_tables(schema)
+    slot = next(row for row in editable_tables["slots"] if row["slot"] == "sample_id")
+    slot["annotation_ena_allowed_units"] = "mL; L"
+
+    rebuilt, diagnostics = tables_to_schema(editable_tables)
+
+    assert diagnostics == []
+    assert rebuilt["slots"]["sample_id"]["annotations"]["ena_allowed_units"] == "mL; L"
+
+
 def test_tables_to_schema_migrates_legacy_default_unit_annotation() -> None:
     schema = linkml_io.load_yaml_text(
         """

@@ -89,7 +89,7 @@ def _try_sheets2linkml(editable_tables: TableRows) -> tuple[str | None, list[Dia
 
 
 def _write_tsvs(base_dir: Path, editable_tables: TableRows) -> list[Path]:
-    specs = tables.table_specs()
+    specs = tables.table_specs(editable_tables)
     paths = []
     for table_name, rows in editable_tables.items():
         if table_name not in specs:

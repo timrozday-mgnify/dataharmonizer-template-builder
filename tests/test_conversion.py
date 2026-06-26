@@ -19,6 +19,7 @@ def test_slot_annotation_columns_are_schemasheets_inner_key_columns(tmp_path) ->
                 "slot": "trophic_level",
                 "annotation_id": "trophic level",
                 "annotation_default_unit": "",
+                "annotation_ena_allowed_units": "level",
             }
         ]
     }
@@ -34,6 +35,9 @@ def test_slot_annotation_columns_are_schemasheets_inner_key_columns(tmp_path) ->
 
     annotation_id_index = header.index("annotation_id")
     default_unit_index = header.index("annotation_default_unit")
-    assert descriptor[annotation_id_index] == "> annotations: {inner_key: id}"
-    assert descriptor[default_unit_index] == "> annotations: {inner_key: default_unit}"
+    allowed_units_index = header.index("annotation_ena_allowed_units")
+    assert descriptor[annotation_id_index] == '> annotations: {inner_key: "id"}'
+    assert descriptor[default_unit_index] == '> annotations: {inner_key: "default_unit"}'
+    assert descriptor[allowed_units_index] == '> annotations: {inner_key: "ena_allowed_units"}'
     assert data[annotation_id_index] == "trophic level"
+    assert data[allowed_units_index] == "level"

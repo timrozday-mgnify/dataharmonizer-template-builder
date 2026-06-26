@@ -20,7 +20,7 @@ def test_slot_annotation_columns_sync_to_annotation_rows() -> None:
     } in synced["annotations"]
 
 
-def test_source_annotation_row_is_not_a_slot_shortcut_column() -> None:
+def test_source_annotation_row_syncs_to_dynamic_slot_annotation_column() -> None:
     tables = schema_to_tables(
         linkml_io.load_yaml_text(
             """
@@ -48,7 +48,7 @@ slots:
     slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
 
     assert diagnostics == []
-    assert "annotation_source" not in slot
+    assert slot["annotation_source"] == "updated"
 
 
 def test_annotation_rows_sync_to_slot_annotation_columns() -> None:
@@ -65,6 +65,48 @@ def test_annotation_rows_sync_to_slot_annotation_columns() -> None:
 
     assert diagnostics == []
     assert slot["annotation_id"] == "sample identifier"
+
+
+def test_dynamic_slot_annotation_columns_sync_to_annotation_rows() -> None:
+    tables = schema_to_tables(linkml_io.load_yaml_text(SAMPLE_SCHEMA))
+    slot = next(row for row in tables["slots"] if row["slot"] == "sample_id")
+    slot["annotation_ena_allowed_units"] = "mL; L"
+
+    synced, diagnostics = sync_tables(tables, source_table="slots")
+
+    assert diagnostics == []
+    assert {
+        "element_type": "slot",
+        "element": "sample_id",
+        "key": "ena_allowed_units",
+        "value": "mL; L",
+    } in synced["annotations"]
+
+
+def test_deleted_annotation_row_clears_dynamic_slot_annotation_column() -> None:
+    tables = schema_to_tables(
+        linkml_io.load_yaml_text(
+            """
+id: https://example.org/test
+name: test
+classes:
+  Test:
+    slots:
+    - sample_id
+slots:
+  sample_id:
+    annotations:
+      source: legacy
+"""
+        )
+    )
+    tables["annotations"] = []
+
+    synced, diagnostics = sync_tables(tables, source_table="annotations")
+    slot = next(row for row in synced["slots"] if row["slot"] == "sample_id")
+
+    assert diagnostics == []
+    assert slot["annotation_source"] == ""
 
 
 def test_legacy_default_unit_annotation_syncs_to_default_unit_column() -> None:

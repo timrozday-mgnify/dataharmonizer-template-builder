@@ -1,12 +1,9 @@
 import type { Row, Tables } from './types';
 
-const SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
-  annotation_id: 'id',
-  annotation_default_unit: 'default_unit'
-};
+const SLOT_ANNOTATION_COLUMN_PREFIX = 'annotation_';
 
 const LEGACY_SLOT_ANNOTATION_COLUMNS: Record<string, string> = {
-  mimicc_default_unit: 'annotation_default_unit'
+  mimicc_default_unit: 'default_unit'
 };
 
 const LEGACY_SLOT_ROW_COLUMNS: Record<string, string> = {
@@ -86,8 +83,15 @@ function syncSlotAnnotations(tables: Tables, sourceTable?: string) {
     for (const row of tables.slots ?? []) {
       const slotName = cellText(row.slot);
       if (!slotName) continue;
-      for (const [rowKey, annotationKey] of Object.entries(SLOT_ANNOTATION_COLUMNS)) {
+      for (const rowKey of slotAnnotationColumns(row)) {
+        const annotationKey = annotationKeyForColumn(rowKey);
         upsertAnnotation(tables, 'slot', slotName, annotationKey, row[rowKey]);
+      }
+    }
+  } else {
+    for (const row of tables.slots ?? []) {
+      for (const rowKey of slotAnnotationColumns(row)) {
+        row[rowKey] = '';
       }
     }
   }
@@ -96,7 +100,7 @@ function syncSlotAnnotations(tables: Tables, sourceTable?: string) {
   for (const row of tables.annotations ?? []) {
     if (cellText(row.element_type) !== 'slot') continue;
     const slotRow = slotRows.get(cellText(row.element));
-    const rowKey = rowKeyForAnnotation(cellText(row.key));
+    const rowKey = annotationColumnForKey(cellText(row.key));
     if (slotRow && rowKey) {
       slotRow[rowKey] = row.value ?? '';
     }
@@ -207,10 +211,6 @@ function upsertAnnotation(
   }
 }
 
-function rowKeyForAnnotation(annotationKey: string) {
-  return Object.entries(SLOT_ANNOTATION_COLUMNS).find(([, key]) => key === annotationKey)?.[0] ?? '';
-}
-
 function migrateLegacySlotRowColumns(tables: Tables) {
   for (const row of tables.slots ?? []) {
     for (const [legacyKey, rowKey] of Object.entries(LEGACY_SLOT_ROW_COLUMNS)) {
@@ -225,11 +225,29 @@ function migrateLegacySlotRowColumns(tables: Tables) {
 function migrateLegacySlotAnnotations(tables: Tables) {
   for (const row of tables.annotations ?? []) {
     if (cellText(row.element_type) !== 'slot') continue;
-    const rowKey = LEGACY_SLOT_ANNOTATION_COLUMNS[cellText(row.key)];
-    if (rowKey) {
-      row.key = SLOT_ANNOTATION_COLUMNS[rowKey];
+    const key = LEGACY_SLOT_ANNOTATION_COLUMNS[cellText(row.key)];
+    if (key) {
+      row.key = key;
     }
   }
+}
+
+function slotAnnotationColumns(row: Row) {
+  return Object.keys(row).filter(
+    (key) => key.startsWith(SLOT_ANNOTATION_COLUMN_PREFIX) && key !== SLOT_ANNOTATION_COLUMN_PREFIX
+  );
+}
+
+function annotationColumnForKey(key: string) {
+  const normalizedKey = LEGACY_SLOT_ANNOTATION_COLUMNS[key] ?? key;
+  return normalizedKey ? `${SLOT_ANNOTATION_COLUMN_PREFIX}${normalizedKey}` : '';
+}
+
+function annotationKeyForColumn(column: string) {
+  const key = column.startsWith(SLOT_ANNOTATION_COLUMN_PREFIX)
+    ? column.slice(SLOT_ANNOTATION_COLUMN_PREFIX.length)
+    : column;
+  return LEGACY_SLOT_ANNOTATION_COLUMNS[key] ?? key;
 }
 
 function parseMapping(value: unknown): Record<string, Row[string]> {
