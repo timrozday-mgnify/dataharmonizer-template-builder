@@ -233,7 +233,7 @@ export function DataGrid({
     hotRef.current.selectCell(rowIndex, columnIndex);
     hotRef.current.scrollViewportTo(rowIndex, columnIndex);
     hotRef.current.render();
-  }, [focusLocation, orderedColumns, tableName, rows]);
+  }, [focusLocation, orderedColumns, tableName]);
 
   return (
     <div className="hot-grid-wrap">

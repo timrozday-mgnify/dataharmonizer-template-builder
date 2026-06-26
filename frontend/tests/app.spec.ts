@@ -151,6 +151,23 @@ test('edits enum values in the focused enum workspace', async ({ page }) => {
   await expect(page.locator('.generated-output')).toContainText('archived');
 });
 
+test('keeps focus while filtering enum values', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'Enum workspace' }).click();
+
+  const search = page.locator('.enum-toolbar .search-box input');
+  await search.focus();
+  await page.keyboard.type('dra');
+
+  await expect(search).toHaveValue('dra');
+  await expect(search).toBeFocused();
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).toContainText('draft');
+  await expect(page.locator('.enum-values .ht_master .htCore tbody')).not.toContainText('ready');
+});
+
 test('adds a new enum from the focused enum workspace', async ({ page }) => {
   await routeStandaloneFrontendConfig(page);
   await page.goto('/');
