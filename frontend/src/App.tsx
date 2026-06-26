@@ -570,15 +570,42 @@ function EditableTable({
   onOpenEnum?: (enumName: string) => void;
   focusLocation?: EditLocation | null;
 }) {
+  const [search, setSearch] = useState('');
   const columns = useMemo(() => {
     const names = new Set<string>();
     rows.forEach((row) => Object.keys(row).forEach((key) => names.add(key)));
     return [...names];
   }, [rows]);
+  const visibleRows = useMemo(
+    () =>
+      rows
+        .map((row, sourceIndex) => ({ row, sourceIndex }))
+        .filter(({ row }) => tableRowMatches(row, columns, search)),
+    [columns, rows, search]
+  );
+  const visibleGridRows = useMemo(() => visibleRows.map(({ row }) => row), [visibleRows]);
+  const visibleFocusLocation = useMemo(() => {
+    if (!focusLocation || focusLocation.tableName !== tableName || focusLocation.rowIndex === undefined) {
+      return focusLocation;
+    }
+    const visibleIndex = visibleRows.findIndex(({ sourceIndex }) => sourceIndex === focusLocation.rowIndex);
+    if (visibleIndex < 0) return null;
+    return { ...focusLocation, rowIndex: visibleIndex };
+  }, [focusLocation, tableName, visibleRows]);
 
   function addRow() {
     onChange([...rows, Object.fromEntries(columns.map((column) => [column, '']))]);
+    setSearch('');
   }
+  const updateVisibleRows = useCallback((nextVisibleRows: Row[], location?: EditLocation) => {
+    const nextRows = reconcileTableRows(rows, visibleRows, nextVisibleRows, search);
+    const visibleRowIndex = location?.rowIndex;
+    const rowIndex =
+      visibleRowIndex === undefined
+        ? undefined
+        : visibleRows[visibleRowIndex]?.sourceIndex ?? Math.min(visibleRowIndex, nextRows.length - 1);
+    onChange(nextRows, location ? { ...location, tableName, rowIndex } : { tableName });
+  }, [onChange, rows, search, tableName, visibleRows]);
   const rangeRenderer = useMemo(
     () => (onOpenEnum ? enumRangeRenderer(enumNames, onOpenEnum) : undefined),
     [enumNames, onOpenEnum]
@@ -603,19 +630,26 @@ function EditableTable({
 
   return (
     <div className="table-wrap">
+      <div className="table-toolbar">
+        <label className="search-box">
+          <Search size={15} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} />
+        </label>
+        <span>{visibleRows.length} / {rows.length}</span>
+        <button className="compact" onClick={addRow}>
+          Add row
+        </button>
+      </div>
       <DataGrid
         key={`${tableName}:${columns.join('\u001f')}`}
         tableName={tableName}
-        rows={rows}
-        onChange={onChange}
+        rows={visibleGridRows}
+        onChange={updateVisibleRows}
         columns={columns}
         pinnedColumns={tableName === 'slots' ? SLOT_PINNED_COLUMNS : undefined}
         cellMeta={cellMeta}
-        focusLocation={focusLocation}
+        focusLocation={visibleFocusLocation}
       />
-      <button className="compact" onClick={addRow}>
-        Add row
-      </button>
     </div>
   );
 }
@@ -1152,6 +1186,45 @@ function enumRowMatches(row: Row, search: string): boolean {
   return ['permissible_value', 'text', 'description', 'meaning', 'comments'].some((column) =>
     cellText(row[column]).toLowerCase().includes(query)
   );
+}
+
+function tableRowMatches(row: Row, columns: string[], search: string): boolean {
+  const query = search.trim().toLowerCase();
+  if (!query) return true;
+  return columns.some((column) => cellText(row[column]).toLowerCase().includes(query));
+}
+
+function reconcileTableRows(
+  sourceRows: Row[],
+  visibleRows: { row: Row; sourceIndex: number }[],
+  nextVisibleRows: Row[],
+  search: string
+): Row[] {
+  if (!search.trim()) {
+    return nextVisibleRows;
+  }
+
+  const visibleSourceIndexes = new Set(visibleRows.map(({ sourceIndex }) => sourceIndex));
+  const nextRows: Row[] = [];
+  let nextVisibleIndex = 0;
+  let insertedReplacement = false;
+
+  sourceRows.forEach((row, sourceIndex) => {
+    if (!visibleSourceIndexes.has(sourceIndex)) {
+      nextRows.push(row);
+      return;
+    }
+    if (nextVisibleIndex < nextVisibleRows.length) {
+      nextRows.push(nextVisibleRows[nextVisibleIndex]);
+      nextVisibleIndex += 1;
+    }
+    insertedReplacement = true;
+  });
+
+  const remainingRows = nextVisibleRows.slice(nextVisibleIndex);
+  if (!remainingRows.length) return nextRows;
+  if (!insertedReplacement) return [...sourceRows, ...remainingRows];
+  return [...nextRows, ...remainingRows];
 }
 
 function reconcileEnumValueRows(

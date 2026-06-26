@@ -168,6 +168,55 @@ test('keeps focus while filtering enum values', async ({ page }) => {
   await expect(page.locator('.enum-values .ht_master .htCore tbody')).not.toContainText('ready');
 });
 
+test('filters schema tables and edits the matched source row', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+
+  const search = page.locator('.table-toolbar .search-box input');
+  await search.focus();
+  await page.keyboard.type('status');
+
+  await expect(search).toHaveValue('status');
+  await expect(search).toBeFocused();
+  await expect(page.locator('.table-toolbar span')).toHaveText('1 / 2');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('status');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).not.toContainText('sample_id');
+
+  const titleCell = page
+    .locator('.table-panel .ht_master .htCore tbody tr')
+    .first()
+    .locator('td', { hasText: 'Status' })
+    .filter({ visible: true })
+    .first();
+  await replaceHotCell(titleCell, 'Release Status');
+
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await page.getByRole('button', { name: 'Export YAML' }).first().click();
+
+  await expect(page.locator('.generated-output')).toContainText('Release Status');
+  await expect(page.locator('.generated-output')).toContainText('sample_id');
+});
+
+test('clears schema table filtering when adding a row', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+
+  const search = page.locator('.table-toolbar .search-box input');
+  await search.fill('status');
+  await expect(page.locator('.table-toolbar span')).toHaveText('1 / 2');
+
+  await page.locator('.table-toolbar').getByRole('button', { name: 'Add row' }).click();
+
+  await expect(search).toHaveValue('');
+  await expect(page.locator('.table-toolbar span')).toHaveText('3 / 3');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('sample_id');
+  await expect(page.locator('.table-panel .ht_master .htCore tbody')).toContainText('status');
+});
+
 test('adds a new enum from the focused enum workspace', async ({ page }) => {
   await routeStandaloneFrontendConfig(page);
   await page.goto('/');
