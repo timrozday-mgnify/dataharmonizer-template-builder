@@ -387,6 +387,87 @@ test('syncs annotation table edits into generated slot annotations', async ({ pa
   await expect(page.locator('.generated-output')).toContainText('uL');
 });
 
+test('undoes and redoes slot deletion cascades to annotations', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Import YAML' }).first().click();
+  await page.locator('.popup-textarea').fill(ANNOTATED_SCHEMA);
+  await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
+  await expect(page.locator('.schema-name')).toHaveText('annotation_demo');
+
+  await removeHotRow(page, page.locator('.table-panel .ht_clone_inline_start .htCore tbody td', { hasText: 'sample_id' }).filter({ visible: true }).first());
+  await page.getByRole('button', { name: 'annotations' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('sample_id');
+  await expect(page.locator('.table-panel')).not.toContainText('default_unit');
+
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('slots');
+  await expect(page.locator('.table-panel')).toContainText('sample_id');
+  await page.getByRole('button', { name: 'annotations' }).click();
+  await expect(page.locator('.table-panel')).toContainText('default_unit');
+
+  await page.keyboard.press('Control+Y');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('slots');
+  await page.getByRole('button', { name: 'annotations' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('default_unit');
+});
+
+test('undoes and redoes class deletion cascades to slots and annotations', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Import YAML' }).first().click();
+  await page.locator('.popup-textarea').fill(ANNOTATED_SCHEMA);
+  await page.locator('.popup-actions').getByRole('button', { name: 'Load schema' }).click();
+  await expect(page.locator('.schema-name')).toHaveText('annotation_demo');
+
+  await page.getByRole('button', { name: 'classes' }).click();
+  await removeHotRow(page, page.locator('.table-panel .ht_master .htCore tbody td', { hasText: 'Demo' }).filter({ visible: true }).first());
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('sample_id');
+  await page.getByRole('button', { name: 'annotations' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('default_unit');
+
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('classes');
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).toContainText('sample_id');
+  await page.getByRole('button', { name: 'annotations' }).click();
+  await expect(page.locator('.table-panel')).toContainText('default_unit');
+
+  await page.keyboard.press('Control+Y');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('classes');
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('sample_id');
+});
+
+test('undoes and redoes enum deletion cascades to values annotations and ranges', async ({ page }) => {
+  await routeStandaloneFrontendConfig(page);
+  await page.goto('/');
+
+  await importDemoSchema(page);
+  await page.getByRole('button', { name: 'enums' }).click();
+  await removeHotRow(page, page.locator('.table-panel .ht_master .htCore tbody td', { hasText: 'StatusMenu' }).filter({ visible: true }).first());
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('StatusMenu');
+  await page.getByRole('button', { name: 'permissible values' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('ready');
+
+  await page.keyboard.press('Control+Z');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('enums');
+  await expect(page.locator('.table-panel')).toContainText('StatusMenu');
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).toContainText('StatusMenu');
+  await page.getByRole('button', { name: 'permissible values' }).click();
+  await expect(page.locator('.table-panel')).toContainText('ready');
+
+  await page.keyboard.press('Control+Y');
+  await expect(page.locator('.table-panel .panel-heading h2')).toHaveText('enums');
+  await page.getByRole('button', { name: 'slots' }).click();
+  await expect(page.locator('.table-panel')).not.toContainText('StatusMenu');
+});
+
 test('keeps row hit testing aligned after slot annotation sync inserts rows', async ({ page }) => {
   await routeStandaloneFrontendConfig(page);
   await page.goto('/');
@@ -628,6 +709,13 @@ async function replaceHotCell(cell: Locator, value: string) {
   await cell.page().keyboard.press('ControlOrMeta+A');
   await cell.page().keyboard.type(value);
   await cell.page().keyboard.press('Enter');
+}
+
+async function removeHotRow(page: Page, cell: Locator) {
+  await expect(cell).toBeVisible();
+  await cell.click();
+  await cell.click({ button: 'right' });
+  await page.locator('.htContextMenu').filter({ hasText: 'Remove row' }).getByText('Remove row').click();
 }
 
 async function fillSlotAnnotationCell(page: Page, visibleAnchorText: string, targetRowIndex: number, value: string) {

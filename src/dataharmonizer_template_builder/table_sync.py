@@ -41,9 +41,11 @@ def sync_tables(
     synced.setdefault(PERMISSIBLE_VALUE_TABLE, [])
     synced.setdefault(ANNOTATION_TABLE, [])
 
+    _prune_missing_references(synced)
     _sync_class_slots(synced)
     _sync_slot_annotations(synced, source_table)
     diagnostics = _sync_enum_annotations(synced, source_table)
+    _prune_missing_references(synced)
     diagnostics.extend(_reference_diagnostics(synced))
     return synced, diagnostics
 
@@ -111,6 +113,7 @@ def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[
                     )
                 )
                 continue
+            _remove_enum_annotation_rows_not_in(annotation_rows, enum_name, set(parsed))
             for key, value in parsed.items():
                 _upsert_annotation(annotation_rows, "enum", enum_name, str(key), str(value))
 
@@ -126,6 +129,71 @@ def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[
         enum_row["annotations"] = json.dumps(parsed, ensure_ascii=False) if parsed else ""
 
     return diagnostics
+
+
+def _prune_missing_references(tables: TableRows) -> None:
+    class_names = {
+        _cell(row.get("class")) for row in tables[CLASS_TABLE] if _cell(row.get("class"))
+    }
+    enum_names = {_cell(row.get("enum")) for row in tables[ENUM_TABLE] if _cell(row.get("enum"))}
+
+    tables[SLOT_TABLE] = [
+        row
+        for row in tables[SLOT_TABLE]
+        if not _cell(row.get("class")) or _cell(row.get("class")) in class_names
+    ]
+    for row in tables[SLOT_TABLE]:
+        enum_name = _cell(row.get("range"))
+        if enum_name.endswith("Menu") and enum_name not in enum_names:
+            row["range"] = ""
+
+    slot_names = {_cell(row.get("slot")) for row in tables[SLOT_TABLE] if _cell(row.get("slot"))}
+
+    tables[PERMISSIBLE_VALUE_TABLE] = [
+        row
+        for row in tables[PERMISSIBLE_VALUE_TABLE]
+        if not _cell(row.get("enum")) or _cell(row.get("enum")) in enum_names
+    ]
+    tables[ANNOTATION_TABLE] = [
+        row
+        for row in tables[ANNOTATION_TABLE]
+        if _annotation_target_exists(row, class_names, slot_names, enum_names)
+    ]
+
+
+def _annotation_target_exists(
+    row: JsonDict,
+    class_names: set[str],
+    slot_names: set[str],
+    enum_names: set[str],
+) -> bool:
+    element_type = _cell(row.get("element_type"))
+    element = _cell(row.get("element"))
+    if not element_type or not element:
+        return True
+    if element_type == "class":
+        return element in class_names
+    if element_type == "slot":
+        return element in slot_names
+    if element_type == "enum":
+        return element in enum_names
+    return True
+
+
+def _remove_enum_annotation_rows_not_in(
+    rows: list[JsonDict],
+    enum_name: str,
+    keys: set[str],
+) -> None:
+    rows[:] = [
+        row
+        for row in rows
+        if not (
+            _cell(row.get("element_type")) == "enum"
+            and _cell(row.get("element")) == enum_name
+            and _cell(row.get("key")) not in keys
+        )
+    ]
 
 
 def _reference_diagnostics(tables: TableRows) -> list[Diagnostic]:

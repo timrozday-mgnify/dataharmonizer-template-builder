@@ -21,16 +21,25 @@ export function syncTables(previousTables: Tables, nextTables: Tables, options: 
     tables[name] ??= [];
   }
 
-  syncRenames(previousTables, tables, options.sourceTable);
+  const renamed = syncRenames(previousTables, tables, options.sourceTable);
+  syncDeletedReferences(previousTables, tables, renamed, options.sourceTable);
+  pruneMissingReferences(tables);
   syncClassSlotMembership(tables, options.sourceTable);
   syncSlotAnnotations(tables, options.sourceTable);
   syncEnumAnnotations(tables, options.sourceTable);
+  pruneMissingReferences(tables);
   return tables;
 }
 
 function syncRenames(previousTables: Tables, tables: Tables, sourceTable?: string) {
+  const renamed = {
+    classes: new Set<string>(),
+    slots: new Set<string>(),
+    enums: new Set<string>()
+  };
   if (sourceTable === 'classes') {
     forEachRowRename(previousTables.classes, tables.classes, 'class', (oldName, nextName) => {
+      renamed.classes.add(oldName);
       replaceCellValue(tables.slots, 'class', oldName, nextName);
       replaceAnnotationTarget(tables.annotations, 'class', oldName, nextName);
     });
@@ -38,17 +47,20 @@ function syncRenames(previousTables: Tables, tables: Tables, sourceTable?: strin
 
   if (sourceTable === 'slots') {
     forEachRowRename(previousTables.slots, tables.slots, 'slot', (oldName, nextName) => {
+      renamed.slots.add(oldName);
       replaceAnnotationTarget(tables.annotations, 'slot', oldName, nextName);
     });
   }
 
   if (sourceTable === 'enums') {
     forEachRowRename(previousTables.enums, tables.enums, 'enum', (oldName, nextName) => {
+      renamed.enums.add(oldName);
       replaceCellValue(tables.permissible_values, 'enum', oldName, nextName);
       replaceCellValue(tables.slots, 'range', oldName, nextName);
       replaceAnnotationTarget(tables.annotations, 'enum', oldName, nextName);
     });
   }
+  return renamed;
 }
 
 function syncClassSlotMembership(tables: Tables, sourceTable?: string) {
@@ -113,7 +125,9 @@ function syncEnumAnnotations(tables: Tables, sourceTable?: string) {
     for (const row of tables.enums ?? []) {
       const enumName = cellText(row.enum);
       if (!enumName) continue;
-      for (const [key, value] of Object.entries(parseMapping(row.annotations))) {
+      const annotations = parseMapping(row.annotations);
+      removeEnumAnnotationRowsNotIn(tables, enumName, new Set(Object.keys(annotations)));
+      for (const [key, value] of Object.entries(annotations)) {
         upsertAnnotation(tables, 'enum', enumName, key, value);
       }
     }
@@ -129,6 +143,95 @@ function syncEnumAnnotations(tables: Tables, sourceTable?: string) {
     annotations[key] = row.value ?? '';
     enumRow.annotations = Object.keys(annotations).length ? JSON.stringify(annotations) : '';
   }
+}
+
+function syncDeletedReferences(
+  previousTables: Tables,
+  tables: Tables,
+  renamed: ReturnType<typeof syncRenames>,
+  sourceTable?: string
+) {
+  if (sourceTable === 'classes') {
+    const deletedClasses = deletedNames(previousTables.classes, tables.classes, 'class', renamed.classes);
+    if (deletedClasses.size) {
+      tables.slots = (tables.slots ?? []).filter((row) => !deletedClasses.has(cellText(row.class)));
+      tables.annotations = (tables.annotations ?? []).filter(
+        (row) => !(cellText(row.element_type) === 'class' && deletedClasses.has(cellText(row.element)))
+      );
+    }
+  }
+
+  if (sourceTable === 'slots') {
+    const deletedSlots = deletedNames(previousTables.slots, tables.slots, 'slot', renamed.slots);
+    if (deletedSlots.size) {
+      tables.annotations = (tables.annotations ?? []).filter(
+        (row) => !(cellText(row.element_type) === 'slot' && deletedSlots.has(cellText(row.element)))
+      );
+    }
+  }
+
+  if (sourceTable === 'enums') {
+    const deletedEnums = deletedNames(previousTables.enums, tables.enums, 'enum', renamed.enums);
+    if (deletedEnums.size) {
+      tables.permissible_values = (tables.permissible_values ?? []).filter(
+        (row) => !deletedEnums.has(cellText(row.enum))
+      );
+      tables.annotations = (tables.annotations ?? []).filter(
+        (row) => !(cellText(row.element_type) === 'enum' && deletedEnums.has(cellText(row.element)))
+      );
+      for (const row of tables.slots ?? []) {
+        if (deletedEnums.has(cellText(row.range))) {
+          row.range = '';
+        }
+      }
+    }
+  }
+}
+
+function pruneMissingReferences(tables: Tables) {
+  const classNames = new Set((tables.classes ?? []).map((row) => cellText(row.class)).filter(Boolean));
+  const enumNames = new Set((tables.enums ?? []).map((row) => cellText(row.enum)).filter(Boolean));
+
+  tables.slots = (tables.slots ?? []).filter((row) => {
+    const className = cellText(row.class);
+    return !className || classNames.has(className);
+  });
+  for (const row of tables.slots ?? []) {
+    const enumName = cellText(row.range);
+    if (enumName.endsWith('Menu') && !enumNames.has(enumName)) {
+      row.range = '';
+    }
+  }
+
+  const slotNames = new Set((tables.slots ?? []).map((row) => cellText(row.slot)).filter(Boolean));
+  tables.permissible_values = (tables.permissible_values ?? []).filter((row) => {
+    const enumName = cellText(row.enum);
+    return !enumName || enumNames.has(enumName);
+  });
+  tables.annotations = (tables.annotations ?? []).filter((row) =>
+    annotationTargetExists(row, classNames, slotNames, enumNames)
+  );
+}
+
+function annotationTargetExists(row: Row, classNames: Set<string>, slotNames: Set<string>, enumNames: Set<string>) {
+  const elementType = cellText(row.element_type);
+  const element = cellText(row.element);
+  if (!elementType || !element) return true;
+  if (elementType === 'class') return classNames.has(element);
+  if (elementType === 'slot') return slotNames.has(element);
+  if (elementType === 'enum') return enumNames.has(element);
+  return true;
+}
+
+function removeEnumAnnotationRowsNotIn(tables: Tables, enumName: string, keys: Set<string>) {
+  tables.annotations = (tables.annotations ?? []).filter(
+    (row) =>
+      !(
+        cellText(row.element_type) === 'enum' &&
+        cellText(row.element) === enumName &&
+        !keys.has(cellText(row.key))
+      )
+  );
 }
 
 function rebuildClassSlotRows(slotRows: Row[], className: string, slotNames: string[]) {
@@ -154,6 +257,7 @@ function forEachRowRename(
 ) {
   const previous = previousRows ?? [];
   const next = nextRows ?? [];
+  if (previous.length !== next.length) return;
   for (let index = 0; index < Math.min(previous.length, next.length); index += 1) {
     const oldName = cellText(previous[index]?.[column]);
     const nextName = cellText(next[index]?.[column]);
@@ -161,6 +265,20 @@ function forEachRowRename(
       onRename(oldName, nextName);
     }
   }
+}
+
+function deletedNames(
+  previousRows: Row[] | undefined,
+  nextRows: Row[] | undefined,
+  column: string,
+  renamed: Set<string>
+) {
+  const nextNames = new Set((nextRows ?? []).map((row) => cellText(row[column])).filter(Boolean));
+  return new Set(
+    (previousRows ?? [])
+      .map((row) => cellText(row[column]))
+      .filter((name) => name && !renamed.has(name) && !nextNames.has(name))
+  );
 }
 
 function replaceCellValue(rows: Row[] | undefined, column: string, oldValue: string, nextValue: string) {
