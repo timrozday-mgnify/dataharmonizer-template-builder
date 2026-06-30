@@ -6,10 +6,10 @@ The implementation plan should cover these components:
 
 - LinkML loader: accepts uploaded files, host-provided schema text, or a local
   development path.
-- Schemasheets adapter: converts LinkML to editable Schemasheets tables and back
-  to LinkML.
+- editable table adapter: converts LinkML to editable tables based on
+  Schemasheets conventions and back to LinkML.
 - Editor schema: a DataHarmonizer-compatible LinkML schema describing the
-  Schemasheets table rows users will edit.
+  editable table rows users will edit.
 - DataHarmonizer shell: browser UI that renders the editor schema and table
   data using the expanded API in `../DataHarmonizer`.
 - enum editor: table/detail UI for managing permissible values separately from
@@ -47,6 +47,17 @@ template directory, compiles it to `schema.json`, updates `menu.json`, and then
 runs `yarn build:web` in the DataHarmonizer checkout.
 
 This tool should output LinkML that remains valid for that build flow.
+
+## Editable Table Conversion
+
+Conversion uses the reimplemented `linkml-lib.edit_tables` adapter rather than
+the upstream `schemasheets` package or CLI. The adapter is based on
+Schemasheets concepts, but it is intentionally narrower: it works in memory
+with DataHarmonizer's JSON-like row data, separates enum metadata from
+permissible values, preserves slot usage/order, projects annotations into
+editable columns, and supports MIMICC compatibility migrations. Avoiding CLI
+subprocesses and temporary spreadsheet files keeps the embedded editor path
+testable and predictable.
 
 ## Enum Editing Model
 
@@ -99,8 +110,8 @@ the current `../DataHarmonizer` branch.
 
 ## Open Design Questions
 
-- Should Schemasheets conversion run in a Python backend, a local service, a
-  web worker with packaged tooling, or a build-time/server-side adapter?
+- Should editable table conversion remain in the Python backend or move to a
+  packaged browser-side adapter?
 - Should the browser app embed a built DataHarmonizer bundle or import the
   DataHarmonizer library package directly?
 - Should host applications communicate with this tool by iframe messaging,

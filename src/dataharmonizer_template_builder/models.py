@@ -5,32 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from linkml_lib.diagnostics import Diagnostic  # noqa: F401  (re-exported)
+
 
 JsonDict = dict[str, Any]
 TableRows = dict[str, list[JsonDict]]
-
-
-@dataclass
-class Diagnostic:
-    """Describe a schema, table, conversion, or validation issue."""
-
-    level: str
-    message: str
-    table: str | None = None
-    row: int | None = None
-    column: str | None = None
-    path: str | None = None
-
-    def to_dict(self) -> JsonDict:
-        """Return a JSON-serializable diagnostic."""
-        return {
-            "level": self.level,
-            "message": self.message,
-            "table": self.table,
-            "row": self.row,
-            "column": self.column,
-            "path": self.path,
-        }
 
 
 @dataclass

@@ -9,31 +9,39 @@ The tool should preserve the DataHarmonizer authoring model while exposing the
 schema through a table-first editing experience:
 
 - LinkML remains the source and output format.
-- Schemasheets is the intermediate tabular representation.
-- DataHarmonizer renders and validates the editable Schemasheets tables.
+- A Schemasheets-inspired editable table model is the intermediate
+  representation.
+- DataHarmonizer renders and validates the editable LinkML tables.
 - Larger projects can embed or call the tool to update their own schemas.
+
+The table model is a purpose-built reimplementation in `linkml-lib.edit_tables`,
+not direct use of the upstream `schemasheets` package. It keeps conversion
+in-process for DataHarmonizer row data, supports the constrained
+MIMICC/DataHarmonizer editing surface, and avoids CLI subprocesses in embedded
+host workflows.
 
 ## Initial User Workflow
 
 1. User opens the tool from a browser.
 2. User loads a LinkML schema file or a schema provided by a host project.
-3. Tool converts LinkML to Schemasheets tables.
-4. Tool displays the Schemasheets tables in DataHarmonizer.
+3. Tool converts LinkML to editable LinkML tables.
+4. Tool displays the editable tables in DataHarmonizer.
 5. User edits schema rows in the DataHarmonizer grid.
 6. User edits enums in a dedicated view that supports both small controlled
    menus and large vocabularies.
 7. User tests validation rules against example rows before generating output.
 8. User previews the schema as a real DataHarmonizer template.
 9. Tool validates the edited table against an editor schema.
-10. Tool converts Schemasheets back to LinkML.
+10. Tool converts editable tables back to LinkML.
 11. User downloads the updated schema or returns it to the host project.
 
 ## Required Editor Views
 
 ### Schema Tables
 
-The main editor should expose the Schemasheets representation of schema-level,
-class-level, slot-level, slot-usage, annotation, and enum metadata.
+The main editor should expose schema-level, class-level, slot-level,
+slot-usage, annotation, and enum metadata through editable tables based on
+Schemasheets conventions.
 
 ### Enum Editor
 
@@ -93,6 +101,6 @@ DataHarmonizer bundle rebuild flow.
 ## Non-Goals For The Scaffold
 
 - No UI implementation yet.
-- No Schemasheets conversion implementation yet.
+- No direct dependency on the upstream Schemasheets package or CLI.
 - No runtime integration with the MIMICC assistant yet.
 - No dependency pinning beyond minimal package metadata.

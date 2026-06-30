@@ -1,4 +1,4 @@
-"""Synchronize redundant references across editable Schemasheets tables."""
+"""Synchronize redundant references across editable LinkML tables."""
 
 from __future__ import annotations
 

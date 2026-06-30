@@ -23,7 +23,7 @@ from dataharmonizer_template_builder import dh_builder_runner, dh_compile, table
 from dataharmonizer_template_builder.conversion import ConversionService
 from dataharmonizer_template_builder.models import SchemaSession, TableRows
 from dataharmonizer_template_builder.sessions import store
-from dataharmonizer_template_builder import validation
+from linkml_lib import diagnostics as linkml_diagnostics
 
 converter = ConversionService()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -212,7 +212,7 @@ def _generate_session_yaml(session_id: str, editable_tables: TableRows | None) -
     editable_tables, sync_diagnostics = table_sync.sync_tables(editable_tables)
     yaml_text, schema, diagnostics = converter.generate_yaml(editable_tables)
     diagnostics = [*sync_diagnostics, *diagnostics]
-    diagnostics.extend(validation.validate_schema(schema))
+    diagnostics.extend(linkml_diagnostics.validate_schema(schema))
     schema_json, compile_diagnostics = dh_compile.compile_schema_json(yaml_text)
     diagnostics.extend(compile_diagnostics)
     session.tables = editable_tables

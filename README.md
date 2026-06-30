@@ -1,17 +1,25 @@
 # DataHarmonizer Template Builder
 
-Browser-based editor for maintaining DataHarmonizer LinkML schemas through a
-Schemasheets table representation.
+Browser-based editor for maintaining DataHarmonizer LinkML schemas through an
+editable table representation inspired by Schemasheets.
+
+The table model is implemented in `linkml-lib.edit_tables`. It follows
+Schemasheets concepts where they are useful for LinkML editing, but it does not
+depend on the upstream `schemasheets` Python package or the
+`linkml2sheets`/`sheets2linkml` CLI tools at runtime. The reimplementation keeps
+conversion in memory for DataHarmonizer's JSON-like row data, exposes the
+MIMICC/DataHarmonizer editable subset directly, and avoids subprocess/temp-file
+conversion in embedded workflows.
 
 The intended workflow is:
 
 1. Load a LinkML schema.
-2. Convert it to Schemasheets tables.
+2. Convert it to editable LinkML tables based on Schemasheets conventions.
 3. Display those tables in DataHarmonizer using an editor schema designed for
-   Schemasheets rows.
+   editable table rows.
 4. Let users edit schema fields, slot usage, annotations, comments, defaults,
    enums, and ordering in a spreadsheet interface.
-5. Convert the edited Schemasheets representation back to LinkML.
+5. Convert the edited table representation back to LinkML.
 6. Optionally rebuild a full DataHarmonizer preview bundle for the session
    in-app (`POST /api/dh-builder/build` + polling
    `GET /api/dh-builder/build/status/{job_id}`, served at `/dh-preview` once

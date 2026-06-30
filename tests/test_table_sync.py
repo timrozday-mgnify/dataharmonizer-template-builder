@@ -1,6 +1,6 @@
-from dataharmonizer_template_builder import linkml_io
+from linkml_lib import io as linkml_io
 from dataharmonizer_template_builder.table_sync import sync_tables
-from dataharmonizer_template_builder.tables import schema_to_tables
+from linkml_lib.edit_tables import schema_to_tables
 from tests.test_tables import SAMPLE_SCHEMA
 
 

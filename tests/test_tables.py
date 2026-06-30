@@ -1,6 +1,6 @@
-from dataharmonizer_template_builder import linkml_io
+from linkml_lib import io as linkml_io
 from dataharmonizer_template_builder.conversion import ConversionService
-from dataharmonizer_template_builder.tables import schema_to_tables, tables_to_schema
+from linkml_lib.edit_tables import schema_to_tables, tables_to_schema
 
 
 SAMPLE_SCHEMA = """
@@ -48,7 +48,7 @@ enums:
 """
 
 
-def test_schema_to_tables_uses_schemasheets_enum_shape() -> None:
+def test_schema_to_tables_uses_separate_enum_tables() -> None:
     schema = linkml_io.load_yaml_text(SAMPLE_SCHEMA)
     tables = schema_to_tables(schema)
 
@@ -58,7 +58,7 @@ def test_schema_to_tables_uses_schemasheets_enum_shape() -> None:
     assert tables["permissible_values"][0]["permissible_value"] == "draft"
 
 
-def test_enum_annotations_are_mapping_text_for_schemasheets() -> None:
+def test_enum_annotations_are_mapping_text() -> None:
     schema = linkml_io.load_yaml_text(
         """
 id: https://example.org/test

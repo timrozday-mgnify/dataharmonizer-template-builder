@@ -7,7 +7,6 @@ linkml-runtime>=1.8
 linkml-lib @ git+https://github.com/timrozday-mgnify/linkml-lib.git@v0.1.0
 dh-builder-lib @ git+https://github.com/timrozday-mgnify/dh-builder.git@v0.1.0
 pyyaml>=6
-schemasheets>=0.4
 
 # Test/development helpers
 httpx
