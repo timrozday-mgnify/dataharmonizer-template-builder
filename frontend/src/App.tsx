@@ -552,6 +552,13 @@ export function App() {
         </div>
       ) : null}
     </main>
+    <footer style={{background:'#003366',color:'#fff',fontSize:'12px',padding:'10px 18px',display:'flex',gap:'16px',flexWrap:'wrap' as const}}>
+      <span>© EMBL-EBI 2026</span>
+      <a href="https://www.ebi.ac.uk" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">EMBL-EBI</a>
+      <a href="https://www.ebi.ac.uk/ena" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">ENA</a>
+      <a href="https://www.ebi.ac.uk/metagenomics" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">MGnify</a>
+      <a href="https://www.ebi.ac.uk/about/terms-of-use" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">Terms of use</a>
+    </footer>
   );
 }
 
