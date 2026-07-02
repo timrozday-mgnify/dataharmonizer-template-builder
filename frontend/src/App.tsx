@@ -382,6 +382,7 @@ export function App() {
   }, []);
 
   return (
+    <>
     <main className="app-shell">
       <aside className="sidebar">
         <div>
@@ -559,6 +560,7 @@ export function App() {
       <a href="https://www.ebi.ac.uk/metagenomics" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">MGnify</a>
       <a href="https://www.ebi.ac.uk/about/terms-of-use" style={{color:'#cce',textDecoration:'none'}} target="_blank" rel="noopener">Terms of use</a>
     </footer>
+    </>
   );
 }
 
