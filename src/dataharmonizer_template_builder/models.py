@@ -7,7 +7,6 @@ from typing import Any
 
 from linkml_lib.diagnostics import Diagnostic  # noqa: F401  (re-exported)
 
-
 JsonDict = dict[str, Any]
 TableRows = dict[str, list[JsonDict]]
 

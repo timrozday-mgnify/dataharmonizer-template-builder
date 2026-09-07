@@ -66,9 +66,7 @@ def _sync_class_slots(tables: TableRows) -> None:
 
 def _sync_slot_annotations(tables: TableRows, source_table: str | None) -> None:
     annotation_rows = tables[ANNOTATION_TABLE]
-    slot_rows_by_name = {
-        _cell(row.get("slot")): row for row in tables[SLOT_TABLE] if _cell(row.get("slot"))
-    }
+    slot_rows_by_name = {_cell(row.get("slot")): row for row in tables[SLOT_TABLE] if _cell(row.get("slot"))}
     _migrate_legacy_slot_row_columns(slot_rows_by_name.values())
     _migrate_legacy_slot_annotations(annotation_rows)
 
@@ -86,18 +84,16 @@ def _sync_slot_annotations(tables: TableRows, source_table: str | None) -> None:
     for row in annotation_rows:
         if _cell(row.get("element_type")) != "slot":
             continue
-        slot_row = slot_rows_by_name.get(_cell(row.get("element")))
+        target_row = slot_rows_by_name.get(_cell(row.get("element")))
         row_key = _annotation_column_for_key(_cell(row.get("key")))
-        if slot_row is not None and row_key:
-            slot_row[row_key] = row.get("value", "")
+        if target_row is not None and row_key:
+            target_row[row_key] = row.get("value", "")
 
 
 def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     annotation_rows = tables[ANNOTATION_TABLE]
-    enum_rows_by_name = {
-        _cell(row.get("enum")): row for row in tables[ENUM_TABLE] if _cell(row.get("enum"))
-    }
+    enum_rows_by_name = {_cell(row.get("enum")): row for row in tables[ENUM_TABLE] if _cell(row.get("enum"))}
 
     if source_table != ANNOTATION_TABLE:
         for row_index, (enum_name, enum_row) in enumerate(enum_rows_by_name.items(), start=1):
@@ -120,27 +116,23 @@ def _sync_enum_annotations(tables: TableRows, source_table: str | None) -> list[
     for row in annotation_rows:
         if _cell(row.get("element_type")) != "enum":
             continue
-        enum_row = enum_rows_by_name.get(_cell(row.get("element")))
+        target_row = enum_rows_by_name.get(_cell(row.get("element")))
         key = _cell(row.get("key"))
-        if enum_row is None or not key:
+        if target_row is None or not key:
             continue
-        parsed, _ = _parse_mapping_cell(enum_row.get("annotations"))
+        parsed, _ = _parse_mapping_cell(target_row.get("annotations"))
         parsed[key] = row.get("value", "")
-        enum_row["annotations"] = json.dumps(parsed, ensure_ascii=False) if parsed else ""
+        target_row["annotations"] = json.dumps(parsed, ensure_ascii=False) if parsed else ""
 
     return diagnostics
 
 
 def _prune_missing_references(tables: TableRows) -> None:
-    class_names = {
-        _cell(row.get("class")) for row in tables[CLASS_TABLE] if _cell(row.get("class"))
-    }
+    class_names = {_cell(row.get("class")) for row in tables[CLASS_TABLE] if _cell(row.get("class"))}
     enum_names = {_cell(row.get("enum")) for row in tables[ENUM_TABLE] if _cell(row.get("enum"))}
 
     tables[SLOT_TABLE] = [
-        row
-        for row in tables[SLOT_TABLE]
-        if not _cell(row.get("class")) or _cell(row.get("class")) in class_names
+        row for row in tables[SLOT_TABLE] if not _cell(row.get("class")) or _cell(row.get("class")) in class_names
     ]
     for row in tables[SLOT_TABLE]:
         enum_name = _cell(row.get("range"))
@@ -155,9 +147,7 @@ def _prune_missing_references(tables: TableRows) -> None:
         if not _cell(row.get("enum")) or _cell(row.get("enum")) in enum_names
     ]
     tables[ANNOTATION_TABLE] = [
-        row
-        for row in tables[ANNOTATION_TABLE]
-        if _annotation_target_exists(row, class_names, slot_names, enum_names)
+        row for row in tables[ANNOTATION_TABLE] if _annotation_target_exists(row, class_names, slot_names, enum_names)
     ]
 
 
@@ -198,9 +188,7 @@ def _remove_enum_annotation_rows_not_in(
 
 def _reference_diagnostics(tables: TableRows) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
-    class_names = {
-        _cell(row.get("class")) for row in tables[CLASS_TABLE] if _cell(row.get("class"))
-    }
+    class_names = {_cell(row.get("class")) for row in tables[CLASS_TABLE] if _cell(row.get("class"))}
     slot_names = {_cell(row.get("slot")) for row in tables[SLOT_TABLE] if _cell(row.get("slot"))}
     enum_names = {_cell(row.get("enum")) for row in tables[ENUM_TABLE] if _cell(row.get("enum"))}
 
@@ -246,18 +234,15 @@ def _reference_diagnostics(tables: TableRows) -> list[Diagnostic]:
         element = _cell(row.get("element"))
         if not element_type or not element:
             continue
-        if element_type == "class" and element not in class_names:
-            diagnostics.append(
-                Diagnostic("warning", "Annotation target was not found.", ANNOTATION_TABLE, index)
-            )
-        elif element_type == "slot" and element not in slot_names:
-            diagnostics.append(
-                Diagnostic("warning", "Annotation target was not found.", ANNOTATION_TABLE, index)
-            )
-        elif element_type == "enum" and element not in enum_names:
-            diagnostics.append(
-                Diagnostic("warning", "Annotation target was not found.", ANNOTATION_TABLE, index)
-            )
+        if (
+            element_type == "class"
+            and element not in class_names
+            or element_type == "slot"
+            and element not in slot_names
+            or element_type == "enum"
+            and element not in enum_names
+        ):
+            diagnostics.append(Diagnostic("warning", "Annotation target was not found.", ANNOTATION_TABLE, index))
 
     return diagnostics
 
@@ -325,9 +310,7 @@ def _cell(value: Any) -> str:
 
 def _slot_annotation_columns(row: Mapping[str, Any]) -> list[str]:
     return [
-        _annotation_column_for_key(_annotation_key_for_column(key))
-        for key in row
-        if _is_slot_annotation_column(key)
+        _annotation_column_for_key(_annotation_key_for_column(key)) for key in row if _is_slot_annotation_column(key)
     ]
 
 
@@ -356,13 +339,9 @@ def _migrate_legacy_slot_annotation_columns(row: JsonDict) -> None:
 
 def _is_slot_annotation_column(column: str) -> bool:
     return (
-        column.startswith(SLOT_ANNOTATION_COLUMN_PREFIX)
-        and column != SLOT_ANNOTATION_COLUMN_PREFIX
+        column.startswith(SLOT_ANNOTATION_COLUMN_PREFIX) and column != SLOT_ANNOTATION_COLUMN_PREFIX
     ) or _is_legacy_slot_annotation_column(column)
 
 
 def _is_legacy_slot_annotation_column(column: str) -> bool:
-    return (
-        column.startswith(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX)
-        and column != LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX
-    )
+    return column.startswith(LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX) and column != LEGACY_SLOT_ANNOTATION_COLUMN_PREFIX

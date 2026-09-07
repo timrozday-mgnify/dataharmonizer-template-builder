@@ -17,13 +17,13 @@ from django.http import (
     JsonResponse,
 )
 from django.views.static import serve as static_serve
+from linkml_lib import diagnostics as linkml_diagnostics
 from pydantic import BaseModel, ValidationError
 
 from dataharmonizer_template_builder import dh_builder_runner, dh_compile, table_sync
 from dataharmonizer_template_builder.conversion import ConversionService
 from dataharmonizer_template_builder.models import SchemaSession, TableRows
 from dataharmonizer_template_builder.sessions import store
-from linkml_lib import diagnostics as linkml_diagnostics
 
 converter = ConversionService()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -170,7 +170,8 @@ def get_session(request: HttpRequest, session_id: str) -> JsonResponse:
     if request.method != "GET":
         return HttpResponseNotAllowed(["GET"])
     session, err = _session_or_404(session_id)
-    if err:
+    if session is None:
+        assert err is not None
         return err
     return JsonResponse(session.to_dict())
 
@@ -203,10 +204,12 @@ def integration_update_tables(request: HttpRequest, session_id: str) -> JsonResp
     return _update_tables(request, session_id)
 
 
-def _generate_session_yaml(session_id: str, editable_tables: TableRows | None) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+def _generate_session_yaml(
+    session_id: str, editable_tables: TableRows | None
+) -> tuple[dict[str, Any] | None, JsonResponse | None]:
     """Generate LinkML YAML and DataHarmonizer preview schema for a session."""
     session, err = _session_or_404(session_id)
-    if err:
+    if session is None:
         return None, err
     editable_tables = editable_tables if editable_tables is not None else session.tables
     editable_tables, sync_diagnostics = table_sync.sync_tables(editable_tables)
@@ -238,7 +241,8 @@ def generate(request: HttpRequest, session_id: str) -> JsonResponse:
         except (ValidationError, json.JSONDecodeError) as exc:
             return _bad_request(exc)
     result, err = _generate_session_yaml(session_id, tables)
-    if err:
+    if result is None:
+        assert err is not None
         return err
     return JsonResponse(result)
 
@@ -264,7 +268,8 @@ def export_schema(request: HttpRequest, session_id: str) -> JsonResponse:
         except (ValidationError, json.JSONDecodeError) as exc:
             return _bad_request(exc)
     result, err = _generate_session_yaml(session_id, tables)
-    if err:
+    if result is None:
+        assert err is not None
         return err
     return JsonResponse({"yaml": result["yaml"], "diagnostics": result["diagnostics"]})
 
@@ -297,7 +302,7 @@ def _run_dh_builder_job(job: dict[str, Any]) -> None:
     # one and setup (not just the build itself) fails.
     try:
         generated, err = _generate_session_yaml(job["session_id"], None)
-        if err is not None:
+        if generated is None:
             job["lines"].append(f"ERROR: unknown session {job['session_id']!r}")
             job["result"] = {"success": False, "exit_code": 1}
             return

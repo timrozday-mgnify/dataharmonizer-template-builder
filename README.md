@@ -69,7 +69,7 @@ pre-commit run --all-files
 The same checks can be run directly:
 
 ```bash
-python scripts/check_repo.py
+pre-commit run --all-files
 ```
 
 ## Run Locally

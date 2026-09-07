@@ -26,12 +26,19 @@ app = [
   "dh-builder-lib @ git+https://github.com/timrozday-mgnify/dh-builder.git@v0.1.0",
   "pyyaml>=6",
 ]
+
+# Standardised dev group across the MIMICC/ENA repos; `uv sync` installs it by
+# default, so CI needs no extra flag for it.
+[dependency-groups]
 dev = [
   "httpx",
+  "mypy>=1.14",
   "playwright",
-  "pre-commit",
+  "pre-commit>=4",
   "pytest",
   "pytest-playwright",
+  "ruff>=0.16",
+  "types-PyYAML",
 ]
 
 [project.scripts]
@@ -43,3 +50,19 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "../linkml-lib/src", "../dh-builder"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+
+# None of these ship a py.typed marker.
+[[tool.mypy.overrides]]
+module = ["django.*", "linkml.*", "linkml_runtime.*", "linkml_lib.*", "dh_builder_lib.*", "corsheaders.*"]
+ignore_missing_imports = true

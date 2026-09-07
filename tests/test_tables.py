@@ -1,7 +1,7 @@
 from linkml_lib import io as linkml_io
-from dataharmonizer_template_builder.conversion import ConversionService
 from linkml_lib.edit_tables import schema_to_tables, tables_to_schema
 
+from dataharmonizer_template_builder.conversion import ConversionService
 
 SAMPLE_SCHEMA = """
 id: https://example.org/test
@@ -223,9 +223,7 @@ slots:
 def test_class_annotations_round_trip() -> None:
     schema = linkml_io.load_yaml_text(SAMPLE_SCHEMA)
     editable_tables = schema_to_tables(schema)
-    editable_tables["annotations"].append(
-        {"element_type": "class", "element": "Test", "key": "id", "value": "Test"}
-    )
+    editable_tables["annotations"].append({"element_type": "class", "element": "Test", "key": "id", "value": "Test"})
 
     rebuilt, diagnostics = tables_to_schema(editable_tables)
 

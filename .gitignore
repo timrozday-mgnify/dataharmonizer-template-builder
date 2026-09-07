@@ -22,3 +22,6 @@ test-results/
 
 .venv/
 venv/
+
+# Serena tool state
+.serena/

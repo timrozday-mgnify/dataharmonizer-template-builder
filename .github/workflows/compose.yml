@@ -1,0 +1,39 @@
+# Slow (builds the image, minutes) so it is kept out of the fast lint/test
+# workflows and off pushes to main.
+name: Compose
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      # package.json depends on `data-harmonizer` as file:../DataHarmonizer,
+      # so `npm ci` needs the sibling checkout at the same pinned tag the
+      # Dockerfile builds from (docker-compose.yml additional_contexts).
+      - name: Check out DataHarmonizer sibling
+        uses: actions/checkout@v7
+        with:
+          repository: timrozday-mgnify/DataHarmonizer
+          ref: v2.1.0-mimicc
+          path: DataHarmonizer-sibling
+
+      - name: Move sibling alongside the repo
+        run: mv DataHarmonizer-sibling ../DataHarmonizer
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Compose Playwright tests
+        run: ./scripts/test_compose.sh

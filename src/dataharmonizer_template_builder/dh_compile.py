@@ -34,7 +34,7 @@ def compile_schema_json(yaml_text: str, template_name: str = "preview") -> tuple
             Diagnostic(
                 "warning",
                 f"DataHarmonizer compiler not found at {compiler}; preview will use raw LinkML.",
-            )
+            ),
         ]
 
     with tempfile.TemporaryDirectory(prefix="dh-template-builder-preview-") as tmp_dir:
@@ -50,7 +50,7 @@ def compile_schema_json(yaml_text: str, template_name: str = "preview") -> tuple
         except subprocess.CalledProcessError as exc:
             return {}, [
                 fallback_diagnostic,
-                Diagnostic("warning", f"DataHarmonizer schema compilation failed: {exc.stderr}")
+                Diagnostic("warning", f"DataHarmonizer schema compilation failed: {exc.stderr}"),
             ]
         schema_json_path = template_dir / "schema.json"
         if not schema_json_path.exists():

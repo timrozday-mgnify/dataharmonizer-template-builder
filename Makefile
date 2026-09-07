@@ -16,4 +16,4 @@ test-compose:
 	./scripts/test_compose.sh
 
 check:
-	python scripts/check_repo.py
+	pre-commit run --all-files

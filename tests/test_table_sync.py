@@ -1,6 +1,7 @@
 from linkml_lib import io as linkml_io
-from dataharmonizer_template_builder.table_sync import sync_tables
 from linkml_lib.edit_tables import schema_to_tables
+
+from dataharmonizer_template_builder.table_sync import sync_tables
 from tests.test_tables import SAMPLE_SCHEMA
 
 
@@ -90,10 +91,7 @@ def test_deleted_slot_removes_slot_annotations() -> None:
     synced, diagnostics = sync_tables(tables, source_table="slots")
 
     assert diagnostics == []
-    assert all(
-        not (row["element_type"] == "slot" and row["element"] == "sample_id")
-        for row in synced["annotations"]
-    )
+    assert all(not (row["element_type"] == "slot" and row["element"] == "sample_id") for row in synced["annotations"])
 
 
 def test_deleted_annotation_row_clears_dynamic_slot_annotation_column() -> None:
