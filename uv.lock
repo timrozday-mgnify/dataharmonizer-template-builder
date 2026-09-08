@@ -1062,7 +1062,7 @@ wheels = [
 [[package]]
 name = "linkml-lib"
 version = "0.1.0"
-source = { git = "https://github.com/timrozday-mgnify/linkml-lib.git?rev=v0.1.0#89b059a1d4aa8326293323669d85ece5273c1791" }
+source = { git = "https://github.com/timrozday-mgnify/linkml-lib.git?rev=v0.1.0#49469d80106b9fec1bebc771bbe6f25ff4379f7b" }
 dependencies = [
     { name = "linkml" },
     { name = "linkml-runtime" },
